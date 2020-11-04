@@ -1,4 +1,5 @@
 <?php
+var_dump($_SERVER['argv']);
 
 $running = true;
 $exitSig = 0;
@@ -13,6 +14,8 @@ function signal($sig) {
 pcntl_async_signals(true);
 pcntl_signal(SIGTERM, 'signal', false);
 pcntl_signal(SIGINT, 'signal', false);
+
+task_set_delay(3);
 
 create_task('daemon1', __DIR__ . '/daemon.php', ['daemon1', rand(), bin2hex(random_bytes(1))]) or die('create_task failure');
 

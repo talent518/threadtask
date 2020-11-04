@@ -14,5 +14,5 @@ pcntl_signal(SIGINT, 'signal', false);
 
 var_dump($_SERVER['argv']);
 
-sleep(rand(1, 5));
+sleep(mt_rand(1, 5));
 

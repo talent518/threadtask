@@ -17,9 +17,12 @@
 static sem_t sem;
 static pthread_mutex_t lock;
 static pthread_cond_t cond;
-static unsigned int threads = 0;
+static volatile unsigned int threads = 0;
+static volatile unsigned int delay = 1;
+static volatile zend_bool isTry = 1;
 
 void cli_register_file_handles(void);
+void sapi_cli_register_variables(char *filename);
 
 void thread_sigmask() {
 	sigset_t set;
@@ -67,6 +70,13 @@ void free_task(task_t *task) {
 
 void *thread_task(task_t *task) {
 	zend_file_handle file_handle;
+	sigset_t waitset;
+	siginfo_t info;
+	struct timespec timeout;
+
+	sigemptyset(&waitset);
+	sigaddset(&waitset, SIGINT);
+	sigaddset(&waitset, SIGTERM);
 
 	thread_sigmask();
 
@@ -93,6 +103,7 @@ void *thread_task(task_t *task) {
 	SG(options) |= SAPI_OPTION_NO_CHDIR;
 	SG(request_info).argc = task->argc;
 	SG(request_info).argv = task->argv;
+	SG(request_info).path_translated = task->argv[0];
 
 	loop:
 	if(php_request_startup() == FAILURE) {
@@ -109,14 +120,19 @@ void *thread_task(task_t *task) {
 		zend_stream_init_filename(&file_handle, task->argv[0]);
 		php_execute_script(&file_handle);
 		fprintf(stderr, "[%s] ok\n", task->name);
-	} zend_catch {
-		fprintf(stderr, "[%s] exit_status = %d\n", task->name, EG(exit_status));
-		if(EG(exit_status)) {
-			php_request_shutdown(NULL);
-			goto loop;
-		}
 	} zend_end_try();
-	php_request_shutdown(NULL);
+
+	if(EG(exit_status)) {
+		fprintf(stderr, "[%s] exit_status = %d\n", task->name, EG(exit_status));
+		php_request_shutdown(NULL);
+		timeout.tv_sec = delay;
+		timeout.tv_nsec = 0;
+		sigprocmask(SIG_BLOCK, &waitset, NULL);
+		sigtimedwait(&waitset, &info, &timeout);
+		if(isTry) goto loop;
+	} else {
+		php_request_shutdown(NULL);
+	}
 
 	SG(request_info).argc = 0;
 	SG(request_info).argv = NULL;
@@ -221,6 +237,7 @@ static PHP_FUNCTION(task_wait) {
 	ZEND_PARSE_PARAMETERS_START(1, 1)
 		Z_PARAM_LONG(sig)
 	ZEND_PARSE_PARAMETERS_END();
+	isTry = 0;
 	pthread_mutex_lock(&lock);
 	while(threads > 0) {
 		thread = head_task->thread;
@@ -231,8 +248,21 @@ static PHP_FUNCTION(task_wait) {
 	pthread_mutex_unlock(&lock);
 }
 
+ZEND_BEGIN_ARG_INFO(arginfo_task_set_delay, 1)
+ZEND_ARG_INFO(0, delay)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(task_set_delay) {
+	zend_long d;
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_LONG(d)
+	ZEND_PARSE_PARAMETERS_END();
+	RETVAL_LONG(delay);
+	delay = d;
+}
 const zend_function_entry additional_functions[] = {
 	ZEND_FE(create_task, arginfo_create_task)
 	ZEND_FE(task_wait, arginfo_task_wait)
+	ZEND_FE(task_set_delay, arginfo_task_set_delay)
 	{NULL, NULL, NULL}
 };

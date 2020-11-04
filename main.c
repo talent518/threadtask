@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <embed/php_embed.h>
+#include <standard/php_var.h>
 #include "func.h"
 
 void cli_register_file_handles(void) {
@@ -43,6 +44,22 @@ void cli_register_file_handles(void) {
 	zend_register_constant(&ec);
 }
 
+static void sapi_cli_register_variables(zval *var) {
+	char *filename = SG(request_info).path_translated;
+
+	//printf("filename = %s\n", filename);
+
+	php_import_environment_variables(var);
+
+	php_register_variable("PHP_SELF", filename, var);
+	php_register_variable("SCRIPT_NAME", filename, var);
+	php_register_variable("SCRIPT_FILENAME", filename, var);
+	php_register_variable("PATH_TRANSLATED", filename, var);
+	php_register_variable("DOCUMENT_ROOT", "", var);
+
+	//php_var_dump(var, 0);
+}
+
 static int php_threadtask_startup(sapi_module_struct *sapi_module)
 {
 #ifndef SAPI_NAME
@@ -51,6 +68,7 @@ static int php_threadtask_startup(sapi_module_struct *sapi_module)
 	php_embed_module.name = SAPI_NAME;
 #endif
 	php_embed_module.additional_functions = additional_functions;
+	php_embed_module.register_server_variables = sapi_cli_register_variables;
 	if (php_module_startup(sapi_module, NULL, 0)==FAILURE) {
 		return FAILURE;
 	}
@@ -67,7 +85,7 @@ int main(int argc, char *argv[]) {
 
 	php_embed_module.startup = php_threadtask_startup;
 
-	if(php_embed_init(argc, argv) == FAILURE) {
+	if(php_embed_init(argc-1, argv+1) == FAILURE) {
 		fprintf(stderr, "php_embed_init failure\n");
 		return 1;
 	}
@@ -75,6 +93,8 @@ int main(int argc, char *argv[]) {
 	thread_init();
 
 	CG(skip_shebang) = 1;
+
+	SG(request_info).path_translated = argv[1];
 
 	zend_stream_init_filename(&file_handle, argv[1]);
 	php_execute_script(&file_handle);
