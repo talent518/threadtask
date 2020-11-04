@@ -19,6 +19,8 @@ static pthread_mutex_t lock;
 static pthread_cond_t cond;
 static unsigned int threads = 0;
 
+void cli_register_file_handles(void);
+
 void thread_sigmask() {
 	sigset_t set;
 	sigemptyset(&set);
@@ -33,6 +35,7 @@ void thread_init() {
 	pthread_cond_init(&cond, NULL);
 
 	thread_sigmask();
+	cli_register_file_handles();
 }
 
 void thread_destroy() {
@@ -95,6 +98,8 @@ void *thread_task(task_t *task) {
 	if(php_request_startup() == FAILURE) {
 		goto err;
 	}
+
+	cli_register_file_handles();
 
 	fprintf(stderr, "[%s] running\n", task->name);
 
