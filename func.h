@@ -5,4 +5,7 @@
 
 extern const zend_function_entry additional_functions[];
 
+void thread_init();
+void thread_destroy();
+
 #endif

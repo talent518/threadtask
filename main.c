@@ -6,6 +6,11 @@
 
 static int php_threadtask_startup(sapi_module_struct *sapi_module)
 {
+#ifndef SAPI_NAME
+	php_embed_module.name = "cli";
+#else
+	php_embed_module.name = SAPI_NAME;
+#endif
 	php_embed_module.additional_functions = additional_functions;
 	if (php_module_startup(sapi_module, NULL, 0)==FAILURE) {
 		return FAILURE;
@@ -14,11 +19,10 @@ static int php_threadtask_startup(sapi_module_struct *sapi_module)
 }
 
 int main(int argc, char *argv[]) {
-	char *primary_script;
 	zend_file_handle file_handle;
 
 	if(argc < 2) {
-		fprintf(stderr, "usage: %s phpfile\n", argv[0]);
+		fprintf(stderr, "usage: %s <phpfile>\n", argv[0]);
 		return 255;
 	}
 
@@ -29,11 +33,14 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	primary_script = estrdup(argv[1]);
+	thread_init();
 
-	zend_stream_init_filename(&file_handle, primary_script);
+	CG(skip_shebang) = 1;
+
+	zend_stream_init_filename(&file_handle, argv[1]);
 	php_execute_script(&file_handle);
 
 	php_embed_shutdown();
+	thread_destroy();
 	return 0;
 }
