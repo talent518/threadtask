@@ -48,7 +48,6 @@ void thread_init() {
 	pthread_setspecific(pkey, NULL);
 
 	thread_sigmask();
-	cli_register_file_handles();
 
 	mthread = pthread_self();
 }
