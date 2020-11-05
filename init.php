@@ -18,6 +18,7 @@ pcntl_signal(SIGUSR1, 'signal', false);
 pcntl_signal(SIGUSR2, 'signal', false);
 
 task_set_delay(3);
+task_set_threads(4);
 
 create_task('daemon1', __DIR__ . '/daemon.php', ['daemon1', rand(), bin2hex(random_bytes(1))], __DIR__ . '/daemon.log') or die('create_task failure');
 

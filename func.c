@@ -19,6 +19,7 @@
 static sem_t sem;
 static pthread_mutex_t lock;
 static pthread_cond_t cond;
+static volatile unsigned int maxthreads = 256;
 static volatile unsigned int threads = 0;
 static volatile unsigned int delay = 1;
 static volatile zend_bool isTry = 1;
@@ -280,6 +281,12 @@ static PHP_FUNCTION(create_task) {
 		RETURN_FALSE;
 	}
 
+	pthread_mutex_lock(&lock);
+	while(threads >= maxthreads) {
+		pthread_cond_wait(&cond, &lock);
+	}
+	pthread_mutex_unlock(&lock);
+
 	ht = Z_ARRVAL_P(params);
 	task = (task_t *) malloc(sizeof(task_t));
 	memset(task, 0, sizeof(task_t));
@@ -355,11 +362,26 @@ static PHP_FUNCTION(task_set_delay) {
 		Z_PARAM_LONG(d)
 	ZEND_PARSE_PARAMETERS_END();
 	RETVAL_LONG(delay);
-	delay = d;
+	if(delay > 0) delay = d;
 }
+
+ZEND_BEGIN_ARG_INFO(arginfo_task_set_threads, 0)
+ZEND_ARG_INFO(0, delay)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(task_set_threads) {
+	zend_long d;
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_LONG(d)
+	ZEND_PARSE_PARAMETERS_END();
+	RETVAL_LONG(maxthreads);
+	if(d > 1) maxthreads = d;
+}
+
 const zend_function_entry additional_functions[] = {
 	ZEND_FE(create_task, arginfo_create_task)
 	ZEND_FE(task_wait, arginfo_task_wait)
 	ZEND_FE(task_set_delay, arginfo_task_set_delay)
+	ZEND_FE(task_set_threads, arginfo_task_set_threads)
 	{NULL, NULL, NULL}
 };
