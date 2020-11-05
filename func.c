@@ -7,6 +7,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <signal.h>
+#include <limits.h>
 
 #include <php.h>
 #include <php_main.h>
@@ -20,15 +21,20 @@ static pthread_cond_t cond;
 static volatile unsigned int threads = 0;
 static volatile unsigned int delay = 1;
 static volatile zend_bool isTry = 1;
+static pthread_t mthread;
 
 void cli_register_file_handles(void);
-void sapi_cli_register_variables(char *filename);
 
 void thread_sigmask() {
+	register int sig;
 	sigset_t set;
+
 	sigemptyset(&set);
-	sigaddset(&set, SIGINT);
-	sigaddset(&set, SIGTERM);
+
+	for(sig=SIGHUP; sig<=SIGSYS; sig++) {
+		sigaddset(&set, sig);
+	}
+
 	pthread_sigmask(SIG_SETMASK, &set, NULL);
 }
 
@@ -39,9 +45,12 @@ void thread_init() {
 
 	thread_sigmask();
 	cli_register_file_handles();
+
+	mthread = pthread_self();
 }
 
 void thread_destroy() {
+	sem_destroy(&sem);
 	pthread_cond_destroy(&cond);
 	pthread_mutex_destroy(&lock);
 }
@@ -73,6 +82,7 @@ void *thread_task(task_t *task) {
 	sigset_t waitset;
 	siginfo_t info;
 	struct timespec timeout;
+	char path[PATH_MAX];
 
 	sigemptyset(&waitset);
 	sigaddset(&waitset, SIGINT);
@@ -117,9 +127,13 @@ void *thread_task(task_t *task) {
 	CG(skip_shebang) = 1;
 
 	zend_first_try {
-		zend_stream_init_filename(&file_handle, task->argv[0]);
-		php_execute_script(&file_handle);
-		fprintf(stderr, "[%s] ok\n", task->name);
+		if(realpath(task->argv[0], path) == NULL) {
+			fprintf(stderr, "[%s] %d %s\n", task->name, errno, strerror(errno));
+		} else {
+			zend_stream_init_filename(&file_handle, path);
+			php_execute_script(&file_handle);
+			fprintf(stderr, "[%s] ok\n", task->name);
+		}
 	} zend_end_try();
 
 	if(EG(exit_status)) {
@@ -222,7 +236,10 @@ static PHP_FUNCTION(create_task) {
 	}
 	pthread_attr_destroy(&attr);
 
-	sem_wait(&sem);
+	if(ret != 0) {
+		free_task(task);
+		sem_wait(&sem);
+	}
 
 	RETURN_BOOL(ret == 0);
 }
@@ -231,12 +248,17 @@ ZEND_BEGIN_ARG_INFO(arginfo_task_wait, 1)
 ZEND_ARG_INFO(0, sig)
 ZEND_END_ARG_INFO()
 
+extern zend_bool isReload;
 static PHP_FUNCTION(task_wait) {
 	pthread_t thread;
 	zend_long sig;
 	ZEND_PARSE_PARAMETERS_START(1, 1)
 		Z_PARAM_LONG(sig)
 	ZEND_PARSE_PARAMETERS_END();
+	if(sig == SIGUSR1 || sig == SIGUSR2) {
+		sig = SIGINT;
+		isReload = 1;
+	}
 	isTry = 0;
 	pthread_mutex_lock(&lock);
 	while(threads > 0) {
