@@ -14,6 +14,8 @@ function signal($sig) {
 pcntl_async_signals(true);
 pcntl_signal(SIGTERM, 'signal', false);
 pcntl_signal(SIGINT, 'signal', false);
+pcntl_signal(SIGUSR1, 'signal', false);
+pcntl_signal(SIGUSR2, 'signal', false);
 
 task_set_delay(3);
 

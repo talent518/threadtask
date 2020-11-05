@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <limits.h>
 #include <embed/php_embed.h>
 #include <standard/php_var.h>
 #include "func.h"
@@ -75,6 +77,7 @@ static int php_threadtask_startup(sapi_module_struct *sapi_module)
 	return SUCCESS;
 }
 
+volatile zend_bool isReload = 0;
 int main(int argc, char *argv[]) {
 	zend_file_handle file_handle;
 
@@ -96,10 +99,22 @@ int main(int argc, char *argv[]) {
 
 	SG(request_info).path_translated = argv[1];
 
-	zend_stream_init_filename(&file_handle, argv[1]);
-	php_execute_script(&file_handle);
+	zend_first_try {
+		zend_stream_init_filename(&file_handle, argv[1]);
+		php_execute_script(&file_handle);
+	} zend_catch {
+		if(EG(exit_status)) {
+			isReload = 1;
+		}
+	} zend_end_try();
+
+	if(isReload) {
+		printf("\n\nreload\n\n");
+		execv(argv[0], argv);
+	}
 
 	php_embed_shutdown();
 	thread_destroy();
+
 	return 0;
 }
