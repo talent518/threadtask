@@ -12,6 +12,7 @@
 #include <php.h>
 #include <php_main.h>
 #include <SAPI.h>
+#include <php_output.h>
 
 #include "func.h"
 
@@ -22,6 +23,7 @@ static volatile unsigned int threads = 0;
 static volatile unsigned int delay = 1;
 static volatile zend_bool isTry = 1;
 static pthread_t mthread;
+static pthread_key_t pkey;
 
 void cli_register_file_handles(void);
 
@@ -42,6 +44,8 @@ void thread_init() {
 	sem_init(&sem, 0, 0);
 	pthread_mutex_init(&lock, NULL);
 	pthread_cond_init(&cond, NULL);
+	pthread_key_create(&pkey, NULL);
+	pthread_setspecific(pkey, NULL);
 
 	thread_sigmask();
 	cli_register_file_handles();
@@ -50,9 +54,10 @@ void thread_init() {
 }
 
 void thread_destroy() {
-	sem_destroy(&sem);
+	pthread_key_delete(pkey);
 	pthread_cond_destroy(&cond);
 	pthread_mutex_destroy(&lock);
+	sem_destroy(&sem);
 }
 
 typedef struct _task_t {
@@ -60,6 +65,9 @@ typedef struct _task_t {
 	char *name;
 	int argc;
 	char **argv;
+	char *logfile;
+	char *logmode;
+	FILE *fp;
 	struct _task_t *prev;
 	struct _task_t *next;
 } task_t;
@@ -75,6 +83,56 @@ void free_task(task_t *task) {
 		free(task->argv[i]);
 	}
 	free(task->argv);
+
+	if(task->logfile) free(task->logfile);
+	if(task->logmode) free(task->logmode);
+	if(task->fp) fclose(task->fp);
+}
+
+size_t (*old_ub_write_handler)(const char *str, size_t str_length);
+void (*old_flush_handler)(void *server_context);
+
+size_t php_thread_ub_write_handler(const char *str, size_t str_length) {
+	task_t *task = (task_t *) pthread_getspecific(pkey);
+
+	if(task == NULL) {
+		return old_ub_write_handler(str, str_length);
+	}
+
+	try:
+	if(task->fp == NULL) {
+		task->fp = fopen(task->logfile, task->logmode);
+		if(task->fp == NULL) {
+			fprintf(stderr, "[%s] open file %s is failure, code is %d, error is %s\n", task->name, task->logfile, errno, strerror(errno));
+			return FAILURE;
+		}
+	}
+
+	if(fwrite(str, 1, str_length, task->fp) != str_length) {
+		if(errno == EACCES) {
+			fprintf(stderr, "[%s] write file %s is failure, code is %d, error is %s\n", task->name, task->logfile, errno, strerror(errno));
+			return old_ub_write_handler(str, str_length);
+		} else {
+			fclose(task->fp);
+			task->fp = NULL;
+			goto try;
+		}
+	}
+
+	return str_length;
+}
+
+void php_thread_flush_handler(void *server_context) {
+	task_t *task = (task_t *) pthread_getspecific(pkey);
+
+	if(task == NULL) {
+		old_flush_handler(server_context);
+	} else if(task->fp) {
+		if(fflush(task->fp) == EOF) {
+			fclose(task->fp);
+			task->fp = NULL;
+		}
+	}
 }
 
 void *thread_task(task_t *task) {
@@ -105,6 +163,12 @@ void *thread_task(task_t *task) {
 	pthread_mutex_unlock(&lock);
 
 	sem_post(&sem);
+
+	if(task->logfile && task->logmode) {
+		pthread_setspecific(pkey, task);
+	} else {
+		pthread_setspecific(pkey, NULL);
+	}
 
 	fprintf(stderr, "[%s] begin\n", task->name);
 
@@ -181,16 +245,18 @@ void *thread_task(task_t *task) {
 	pthread_exit(NULL);
 }
 
-ZEND_BEGIN_ARG_INFO(arginfo_create_task, 3)
+ZEND_BEGIN_ARG_INFO(arginfo_create_task, 0)
 	ZEND_ARG_INFO(0, taskname)
 	ZEND_ARG_INFO(0, filename)
 	ZEND_ARG_ARRAY_INFO(0, params, 0)
+	ZEND_ARG_INFO(0, logfile)
+	ZEND_ARG_INFO(0, logmode)
 ZEND_END_ARG_INFO()
 
 static PHP_FUNCTION(create_task) {
 	zval *params;
-	char *taskname, *filename;
-	size_t taskname_len, filename_len;
+	char *taskname, *filename, *logfile = NULL, *logmode = "ab";
+	size_t taskname_len, filename_len, logfile_len = 0, logmode_len = 2;
 	task_t *task;
 	HashTable *ht;
 	zend_long idx;
@@ -201,10 +267,13 @@ static PHP_FUNCTION(create_task) {
 	pthread_attr_t attr;
 	int ret;
 
-	ZEND_PARSE_PARAMETERS_START(3, 3)
+	ZEND_PARSE_PARAMETERS_START(3, 5)
 		Z_PARAM_STRING(taskname, taskname_len)
 		Z_PARAM_STRING(filename, filename_len)
 		Z_PARAM_ARRAY(params)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_STRING(logfile, logfile_len)
+		Z_PARAM_STRING(logmode, logmode_len)
 	ZEND_PARSE_PARAMETERS_END();
 
 	if(access(filename, F_OK|R_OK) != 0) {
@@ -221,6 +290,13 @@ static PHP_FUNCTION(create_task) {
 	task->argc = zend_hash_num_elements(ht) + 1;
 	task->argv = (char**) malloc(sizeof(char*) * task->argc);
 	task->argv[0] = strndup(filename, filename_len);
+
+	if(logfile && logfile_len) {
+		task->logfile = strndup(logfile, logfile_len);
+	}
+	if(logmode && logmode_len) {
+		task->logmode = strndup(logmode, logmode_len);
+	}
 
 	ret = 0;
 	ZEND_HASH_FOREACH_KEY_VAL(ht, idx, key, val) {
@@ -244,7 +320,7 @@ static PHP_FUNCTION(create_task) {
 	RETURN_BOOL(ret == 0);
 }
 
-ZEND_BEGIN_ARG_INFO(arginfo_task_wait, 1)
+ZEND_BEGIN_ARG_INFO(arginfo_task_wait, 0)
 ZEND_ARG_INFO(0, sig)
 ZEND_END_ARG_INFO()
 
@@ -270,7 +346,7 @@ static PHP_FUNCTION(task_wait) {
 	pthread_mutex_unlock(&lock);
 }
 
-ZEND_BEGIN_ARG_INFO(arginfo_task_set_delay, 1)
+ZEND_BEGIN_ARG_INFO(arginfo_task_set_delay, 0)
 ZEND_ARG_INFO(0, delay)
 ZEND_END_ARG_INFO()
 

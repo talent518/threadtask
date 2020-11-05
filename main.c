@@ -64,13 +64,7 @@ static void sapi_cli_register_variables(zval *var) {
 
 static int php_threadtask_startup(sapi_module_struct *sapi_module)
 {
-#ifndef SAPI_NAME
-	php_embed_module.name = "cli";
-#else
-	php_embed_module.name = SAPI_NAME;
-#endif
 	php_embed_module.additional_functions = additional_functions;
-	php_embed_module.register_server_variables = sapi_cli_register_variables;
 	if (php_module_startup(sapi_module, NULL, 0)==FAILURE) {
 		return FAILURE;
 	}
@@ -86,7 +80,20 @@ int main(int argc, char *argv[]) {
 		return 255;
 	}
 
+#ifndef SAPI_NAME
+	php_embed_module.name = "cli";
+#else
+	php_embed_module.name = SAPI_NAME;
+#endif
+
 	php_embed_module.startup = php_threadtask_startup;
+	php_embed_module.register_server_variables = sapi_cli_register_variables;
+
+	old_ub_write_handler = php_embed_module.ub_write;
+	old_flush_handler = php_embed_module.flush;
+
+	php_embed_module.ub_write = php_thread_ub_write_handler;
+	php_embed_module.flush = php_thread_flush_handler;
 
 	if(php_embed_init(argc-1, argv+1) == FAILURE) {
 		fprintf(stderr, "php_embed_init failure\n");
