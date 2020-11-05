@@ -80,6 +80,8 @@ int main(int argc, char *argv[]) {
 		return 255;
 	}
 
+	thread_init();
+
 #ifndef SAPI_NAME
 	php_embed_module.name = "cli";
 #else
@@ -100,7 +102,7 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	thread_init();
+	cli_register_file_handles();
 
 	CG(skip_shebang) = 1;
 
@@ -121,6 +123,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	php_embed_shutdown();
+
 	thread_destroy();
 
 	return 0;
