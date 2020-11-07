@@ -198,6 +198,8 @@ newtask:
 		goto err;
 	}
 
+	REGISTER_MAIN_STRING_CONSTANT("THREAD_TASK_NAME", task->name, CONST_CS|CONST_PERSISTENT);
+
 	cli_register_file_handles();
 
 	dprintf("[%s] running\n", task->name);
@@ -410,6 +412,7 @@ ZEND_END_ARG_INFO()
 
 extern zend_bool isReload;
 static PHP_FUNCTION(task_wait) {
+	task_t *task;
 	pthread_t thread;
 	zend_long sig;
 	ZEND_PARSE_PARAMETERS_START(1, 1)
@@ -421,12 +424,15 @@ static PHP_FUNCTION(task_wait) {
 	}
 	isTry = 0;
 	pthread_mutex_lock(&lock);
-	while(threads > 0) {
-		thread = head_task->thread;
+	task = head_task;
+	while(task) {
+		thread = task->thread;
+		task = task->next;
 		dprintf("pthread_kill %d\n", pthread_tid_ex(thread));
 		pthread_kill(thread, (int) sig);
+	}
+	while(threads > 0) {
 		pthread_cond_wait(&cond, &lock);
-		pthread_join(thread, NULL);
 	}
 	pthread_mutex_unlock(&lock);
 }
