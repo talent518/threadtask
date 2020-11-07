@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <signal.h>
 #include <limits.h>
+#include <time.h>
 
 #include <php.h>
 #include <php_main.h>
@@ -21,6 +22,7 @@ static pthread_mutex_t lock;
 static pthread_cond_t cond;
 static volatile unsigned int maxthreads = 256;
 static volatile unsigned int threads = 0;
+static volatile unsigned int wthreads = 0;
 static volatile unsigned int delay = 1;
 static volatile zend_bool isTry = 1;
 static pthread_t mthread;
@@ -72,6 +74,7 @@ typedef struct _task_t {
 	struct _task_t *next;
 } task_t;
 
+static task_t *taskn = NULL;
 static task_t *head_task = NULL;
 static task_t *tail_task = NULL;
 
@@ -151,7 +154,6 @@ void *thread_task(task_t *task) {
 	task->thread = pthread_self();
 
 	pthread_mutex_lock(&lock);
-	threads++;
 	if(tail_task) {
 		tail_task->next = task;
 		task->prev = tail_task;
@@ -164,16 +166,17 @@ void *thread_task(task_t *task) {
 
 	sem_post(&sem);
 
+	fprintf(stderr, "[%s] begin\n", task->name);
+
+	ts_resource(0);
+
+newtask:
 	if(task->logfile && task->logmode) {
 		pthread_setspecific(pkey, task);
 	} else {
 		pthread_setspecific(pkey, NULL);
 	}
-
-	fprintf(stderr, "[%s] begin\n", task->name);
-
-	ts_resource(0);
-
+	
 	SG(options) |= SAPI_OPTION_NO_CHDIR;
 	SG(request_info).argc = task->argc;
 	SG(request_info).argv = task->argv;
@@ -214,6 +217,48 @@ void *thread_task(task_t *task) {
 
 	SG(request_info).argc = 0;
 	SG(request_info).argv = NULL;
+	
+	pthread_mutex_lock(&lock);
+	wthreads++;
+	fprintf(stderr, "[%s] waittask\n", task->name);
+	do {
+		clock_gettime(CLOCK_REALTIME, &timeout);
+		timeout.tv_sec += delay;
+	} while(!pthread_cond_timedwait(&cond, &lock, &timeout) && !taskn && isTry);
+	if(!isTry) {
+		if(taskn) {
+			free_task(taskn);
+			taskn = NULL;
+		} else {
+			wthreads--;
+		}
+	} else if(taskn) {
+		taskn->thread = task->thread;
+		taskn->prev = task->prev;
+		taskn->next = task->next;
+		if(taskn->prev) {
+			taskn->prev->next = taskn;
+		} else {
+			head_task = taskn;
+		}
+		if(taskn->next) {
+			taskn->next->prev = taskn;
+		} else {
+			tail_task = taskn;
+		}
+		
+		free_task(task);
+		task = taskn;
+		taskn = NULL;
+		pthread_cond_signal(&cond);
+		pthread_mutex_unlock(&lock);
+		fprintf(stderr, "[%s] newtask\n", task->name);
+		goto newtask;
+	} else {
+		wthreads--;
+		pthread_cond_signal(&cond);
+	}
+	pthread_mutex_unlock(&lock);
 
 	err:
 	fprintf(stderr, "[%s] err\n", task->name);
@@ -266,6 +311,12 @@ static PHP_FUNCTION(create_task) {
 	pthread_t thread;
 	pthread_attr_t attr;
 	int ret;
+	struct timespec timeout;
+	
+	if(mthread != pthread_self()) {
+		fprintf(stderr, "create_task() is not running in the main thread\n");
+		return;
+	}
 
 	ZEND_PARSE_PARAMETERS_START(3, 5)
 		Z_PARAM_STRING(taskname, taskname_len)
@@ -280,12 +331,8 @@ static PHP_FUNCTION(create_task) {
 		perror("access() is error");
 		RETURN_FALSE;
 	}
-
-	pthread_mutex_lock(&lock);
-	while(threads >= maxthreads) {
-		pthread_cond_wait(&cond, &lock);
-	}
-	pthread_mutex_unlock(&lock);
+	
+	if(!isTry) RETURN_FALSE;
 
 	ht = Z_ARRVAL_P(params);
 	task = (task_t *) malloc(sizeof(task_t));
@@ -310,6 +357,25 @@ static PHP_FUNCTION(create_task) {
 		task->argv[++ret] = strndup(Z_STRVAL_P(val), Z_STRLEN_P(val));
 	} ZEND_HASH_FOREACH_END();
 
+	pthread_mutex_lock(&lock);
+	idle:
+	if(wthreads) {
+		wthreads--;
+		taskn = task;
+		pthread_cond_signal(&cond);
+		pthread_mutex_unlock(&lock);
+		RETURN_TRUE;
+	} else if(threads >= maxthreads) {
+		clock_gettime(CLOCK_REALTIME, &timeout);
+		timeout.tv_nsec += 10000;
+		pthread_cond_timedwait(&cond, &lock, &timeout);
+		if(isTry) goto idle;
+	}
+	if(isTry) threads++;
+	pthread_mutex_unlock(&lock);
+	
+	if(!isTry) goto end;
+
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 	ret = pthread_create(&thread, &attr, (void*(*)(void*)) thread_task, task);
@@ -318,6 +384,7 @@ static PHP_FUNCTION(create_task) {
 	}
 	pthread_attr_destroy(&attr);
 
+	end:
 	if(ret != 0) {
 		free_task(task);
 		sem_wait(&sem);
@@ -345,6 +412,7 @@ static PHP_FUNCTION(task_wait) {
 	pthread_mutex_lock(&lock);
 	while(threads > 0) {
 		thread = head_task->thread;
+		printf("kill %lx\n", thread);
 		pthread_kill(thread, (int) sig);
 		pthread_cond_wait(&cond, &lock);
 		pthread_join(thread, NULL);
