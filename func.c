@@ -231,6 +231,8 @@ newtask:
 	SG(request_info).argc = 0;
 	SG(request_info).argv = NULL;
 	
+	if(!isTry) goto err;
+	
 	pthread_mutex_lock(&lock);
 	wthreads++;
 	dprintf("[%s] waittask\n", task->name);

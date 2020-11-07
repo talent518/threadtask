@@ -120,6 +120,12 @@ int main(int argc, char *argv[]) {
 	if(isReload) {
 		printf("\n\nreload\n\n");
 		execv(argv[0], argv);
+		{
+			char **args = (char**) malloc(sizeof(char*)*(argc+1));
+			memcpy(args, argv, sizeof(char*)*argc);
+			args[argc] = NULL;
+			execv(argv[0], args);
+		}
 	}
 
 	php_embed_shutdown();
