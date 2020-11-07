@@ -17,6 +17,17 @@
 
 #include "func.h"
 
+struct pthread_fake {
+	void *nothing[90];
+	pid_t tid;
+	pid_t pid;
+};
+
+#define pthread_tid_ex(t) ((struct pthread_fake*) t)->tid
+#define pthread_tid pthread_tid_ex(pthread_self())
+
+#define dprintf(fmt, args...) fprintf(stderr, "[TID:%d] " fmt, pthread_tid, ##args)
+
 static sem_t sem;
 static pthread_mutex_t lock;
 static pthread_cond_t cond;
@@ -106,14 +117,14 @@ size_t php_thread_ub_write_handler(const char *str, size_t str_length) {
 	if(task->fp == NULL) {
 		task->fp = fopen(task->logfile, task->logmode);
 		if(task->fp == NULL) {
-			fprintf(stderr, "[%s] open file %s is failure, code is %d, error is %s\n", task->name, task->logfile, errno, strerror(errno));
+			dprintf("[%s] open file %s is failure, code is %d, error is %s\n", task->name, task->logfile, errno, strerror(errno));
 			return FAILURE;
 		}
 	}
 
 	if(fwrite(str, 1, str_length, task->fp) != str_length) {
 		if(errno == EACCES) {
-			fprintf(stderr, "[%s] write file %s is failure, code is %d, error is %s\n", task->name, task->logfile, errno, strerror(errno));
+			dprintf("[%s] write file %s is failure, code is %d, error is %s\n", task->name, task->logfile, errno, strerror(errno));
 			return old_ub_write_handler(str, str_length);
 		} else {
 			fclose(task->fp);
@@ -166,7 +177,7 @@ void *thread_task(task_t *task) {
 
 	sem_post(&sem);
 
-	fprintf(stderr, "[%s] begin\n", task->name);
+	dprintf("[%s] begin\n", task->name);
 
 	ts_resource(0);
 
@@ -189,22 +200,22 @@ newtask:
 
 	cli_register_file_handles();
 
-	fprintf(stderr, "[%s] running\n", task->name);
+	dprintf("[%s] running\n", task->name);
 
 	CG(skip_shebang) = 1;
 
 	zend_first_try {
 		if(realpath(task->argv[0], path) == NULL) {
-			fprintf(stderr, "[%s] %d %s\n", task->name, errno, strerror(errno));
+			dprintf("[%s] %d %s\n", task->name, errno, strerror(errno));
 		} else {
 			zend_stream_init_filename(&file_handle, path);
 			php_execute_script(&file_handle);
-			fprintf(stderr, "[%s] ok\n", task->name);
+			dprintf("[%s] ok\n", task->name);
 		}
 	} zend_end_try();
 
 	if(EG(exit_status)) {
-		fprintf(stderr, "[%s] exit_status = %d\n", task->name, EG(exit_status));
+		dprintf("[%s] exit_status = %d\n", task->name, EG(exit_status));
 		php_request_shutdown(NULL);
 		timeout.tv_sec = delay;
 		timeout.tv_nsec = 0;
@@ -220,7 +231,7 @@ newtask:
 	
 	pthread_mutex_lock(&lock);
 	wthreads++;
-	fprintf(stderr, "[%s] waittask\n", task->name);
+	dprintf("[%s] waittask\n", task->name);
 	do {
 		clock_gettime(CLOCK_REALTIME, &timeout);
 		timeout.tv_sec += delay;
@@ -252,7 +263,7 @@ newtask:
 		taskn = NULL;
 		pthread_cond_signal(&cond);
 		pthread_mutex_unlock(&lock);
-		fprintf(stderr, "[%s] newtask\n", task->name);
+		dprintf("[%s] newtask\n", task->name);
 		goto newtask;
 	} else {
 		wthreads--;
@@ -261,7 +272,7 @@ newtask:
 	pthread_mutex_unlock(&lock);
 
 	err:
-	fprintf(stderr, "[%s] err\n", task->name);
+	dprintf("[%s] err\n", task->name);
 	ts_free_thread();
 
 	pthread_mutex_lock(&lock);
@@ -283,7 +294,7 @@ newtask:
 	pthread_cond_signal(&cond);
 	pthread_mutex_unlock(&lock);
 
-	fprintf(stderr, "[%s] end\n", task->name);
+	dprintf("[%s] end\n", task->name);
 
 	free_task(task);
 
@@ -314,7 +325,7 @@ static PHP_FUNCTION(create_task) {
 	struct timespec timeout;
 	
 	if(mthread != pthread_self()) {
-		fprintf(stderr, "create_task() is not running in the main thread\n");
+		dprintf("create_task() is not running in the main thread\n");
 		return;
 	}
 
@@ -412,7 +423,7 @@ static PHP_FUNCTION(task_wait) {
 	pthread_mutex_lock(&lock);
 	while(threads > 0) {
 		thread = head_task->thread;
-		printf("kill %lx\n", thread);
+		dprintf("pthread_kill %d\n", pthread_tid_ex(thread));
 		pthread_kill(thread, (int) sig);
 		pthread_cond_wait(&cond, &lock);
 		pthread_join(thread, NULL);
