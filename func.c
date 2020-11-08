@@ -29,8 +29,8 @@ struct pthread_fake {
 #define dprintf(fmt, args...) fprintf(stderr, "[TID:%d] " fmt, pthread_tid, ##args)
 
 static sem_t sem;
-static pthread_mutex_t lock;
-static pthread_cond_t cond;
+static pthread_mutex_t nlock, wlock;
+static pthread_cond_t ncond, wcond;
 static volatile unsigned int maxthreads = 256;
 static volatile unsigned int threads = 0;
 static volatile unsigned int wthreads = 0;
@@ -56,8 +56,10 @@ void thread_sigmask() {
 
 void thread_init() {
 	sem_init(&sem, 0, 0);
-	pthread_mutex_init(&lock, NULL);
-	pthread_cond_init(&cond, NULL);
+	pthread_mutex_init(&nlock, NULL);
+	pthread_mutex_init(&wlock, NULL);
+	pthread_cond_init(&ncond, NULL);
+	pthread_cond_init(&wcond, NULL);
 	pthread_key_create(&pkey, NULL);
 	pthread_setspecific(pkey, NULL);
 
@@ -68,8 +70,10 @@ void thread_init() {
 
 void thread_destroy() {
 	pthread_key_delete(pkey);
-	pthread_cond_destroy(&cond);
-	pthread_mutex_destroy(&lock);
+	pthread_cond_destroy(&ncond);
+	pthread_cond_destroy(&wcond);
+	pthread_mutex_destroy(&nlock);
+	pthread_mutex_destroy(&wlock);
 	sem_destroy(&sem);
 }
 
@@ -164,7 +168,7 @@ void *thread_task(task_t *task) {
 
 	task->thread = pthread_self();
 
-	pthread_mutex_lock(&lock);
+	pthread_mutex_lock(&nlock);
 	if(tail_task) {
 		tail_task->next = task;
 		task->prev = tail_task;
@@ -172,8 +176,8 @@ void *thread_task(task_t *task) {
 	} else {
 		head_task = tail_task = task;
 	}
-	pthread_cond_signal(&cond);
-	pthread_mutex_unlock(&lock);
+	pthread_cond_signal(&ncond);
+	pthread_mutex_unlock(&nlock);
 
 	sem_post(&sem);
 
@@ -233,19 +237,18 @@ newtask:
 	
 	if(!isTry) goto err;
 	
-	pthread_mutex_lock(&lock);
-	wthreads++;
+	pthread_mutex_lock(&wlock);
 	dprintf("[%s] waittask\n", task->name);
-	do {
-		clock_gettime(CLOCK_REALTIME, &timeout);
-		timeout.tv_sec += delay;
-	} while(!pthread_cond_timedwait(&cond, &lock, &timeout) && !taskn && isTry);
+	wthreads++;
+	clock_gettime(CLOCK_REALTIME, &timeout);
+	timeout.tv_sec += delay;
+	pthread_cond_timedwait(&wcond, &wlock, &timeout);
+	wthreads--;
 	if(!isTry) {
 		if(taskn) {
 			free_task(taskn);
 			taskn = NULL;
-		} else {
-			wthreads--;
+			sem_post(&sem);
 		}
 	} else if(taskn) {
 		taskn->thread = task->thread;
@@ -265,21 +268,17 @@ newtask:
 		free_task(task);
 		task = taskn;
 		taskn = NULL;
-		pthread_cond_signal(&cond);
-		pthread_mutex_unlock(&lock);
+		pthread_mutex_unlock(&wlock);
+		sem_post(&sem);
 		dprintf("[%s] newtask\n", task->name);
 		goto newtask;
-	} else {
-		wthreads--;
-		pthread_cond_signal(&cond);
 	}
-	pthread_mutex_unlock(&lock);
+	pthread_mutex_unlock(&wlock);
 
-	err:
-	dprintf("[%s] err\n", task->name);
+err:
 	ts_free_thread();
 
-	pthread_mutex_lock(&lock);
+	pthread_mutex_lock(&nlock);
 	threads--;
 	if(head_task == task) {
 		head_task = head_task->next;
@@ -295,8 +294,8 @@ newtask:
 		task->prev->next = task->next;
 		task->next->prev = task->prev;
 	}
-	pthread_cond_signal(&cond);
-	pthread_mutex_unlock(&lock);
+	pthread_cond_signal(&ncond);
+	pthread_mutex_unlock(&nlock);
 
 	dprintf("[%s] end\n", task->name);
 
@@ -372,24 +371,30 @@ static PHP_FUNCTION(create_task) {
 		task->argv[++ret] = strndup(Z_STRVAL_P(val), Z_STRLEN_P(val));
 	} ZEND_HASH_FOREACH_END();
 
-	pthread_mutex_lock(&lock);
+	pthread_mutex_lock(&wlock);
 	idle:
 	if(wthreads) {
-		wthreads--;
 		taskn = task;
-		pthread_cond_signal(&cond);
-		pthread_mutex_unlock(&lock);
+		pthread_cond_signal(&wcond);
+		pthread_mutex_unlock(&wlock);
+		sem_wait(&sem);
 		RETURN_TRUE;
 	} else if(threads >= maxthreads) {
 		clock_gettime(CLOCK_REALTIME, &timeout);
 		timeout.tv_nsec += 10000;
-		pthread_cond_timedwait(&cond, &lock, &timeout);
+		pthread_cond_timedwait(&wcond, &wlock, &timeout);
 		if(isTry) goto idle;
 	}
-	if(isTry) threads++;
-	pthread_mutex_unlock(&lock);
+	pthread_mutex_unlock(&wlock);
 	
-	if(!isTry) goto end;
+	if(!isTry) {
+		free_task(task);
+		RETURN_FALSE;
+	}
+
+	pthread_mutex_lock(&nlock);
+	threads++;
+	pthread_mutex_unlock(&nlock);
 
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
@@ -399,11 +404,11 @@ static PHP_FUNCTION(create_task) {
 	}
 	pthread_attr_destroy(&attr);
 
-	end:
 	if(ret != 0) {
 		free_task(task);
-		sem_wait(&sem);
 	}
+	
+	sem_wait(&sem);
 
 	RETURN_BOOL(ret == 0);
 }
@@ -425,7 +430,7 @@ static PHP_FUNCTION(task_wait) {
 		isReload = 1;
 	}
 	isTry = 0;
-	pthread_mutex_lock(&lock);
+	pthread_mutex_lock(&nlock);
 	task = head_task;
 	while(task) {
 		thread = task->thread;
@@ -434,9 +439,9 @@ static PHP_FUNCTION(task_wait) {
 		pthread_kill(thread, (int) sig);
 	}
 	while(threads > 0) {
-		pthread_cond_wait(&cond, &lock);
+		pthread_cond_wait(&ncond, &nlock);
 	}
-	pthread_mutex_unlock(&lock);
+	pthread_mutex_unlock(&nlock);
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_task_set_delay, 0)
