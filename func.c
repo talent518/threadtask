@@ -238,7 +238,7 @@ newtask:
 		goto err;
 	}
 
-	REGISTER_MAIN_STRING_CONSTANT("THREAD_TASK_NAME", task->name, CONST_CS|CONST_PERSISTENT);
+	zend_register_string_constant(ZEND_STRL("THREAD_TASK_NAME"), task->name, CONST_CS, PHP_USER_CONSTANT);
 
 	cli_register_file_handles();
 

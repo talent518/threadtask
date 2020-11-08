@@ -6,6 +6,7 @@
 extern const zend_function_entry additional_functions[];
 
 void thread_init();
+void thread_running();
 void thread_destroy();
 
 extern size_t (*old_ub_write_handler)(const char *str, size_t str_length);
