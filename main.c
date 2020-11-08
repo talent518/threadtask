@@ -104,6 +104,8 @@ int main(int argc, char *argv[]) {
 
 	cli_register_file_handles();
 
+	thread_running();
+
 	CG(skip_shebang) = 1;
 
 	SG(request_info).path_translated = argv[1];

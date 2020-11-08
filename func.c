@@ -26,7 +26,7 @@ struct pthread_fake {
 #define pthread_tid_ex(t) ((struct pthread_fake*) t)->tid
 #define pthread_tid pthread_tid_ex(pthread_self())
 
-#define dprintf(fmt, args...) fprintf(stderr, "[TID:%d] " fmt, pthread_tid, ##args)
+#define dprintf(fmt, args...) fprintf(stderr, "[%s] [TID:%d] " fmt, gettimeofstr(), pthread_tid, ##args)
 
 static sem_t sem;
 static pthread_mutex_t nlock, wlock;
@@ -39,7 +39,34 @@ static volatile zend_bool isTry = 1;
 static pthread_t mthread;
 static pthread_key_t pkey;
 
+#define SINFO(key) ((server_info_t*) SG(server_context))->key
+
+typedef struct _server_info_t {
+	char strftime[20];
+} server_info_t;
+
+static server_info_t main_sinfo;
+
 void cli_register_file_handles(void);
+
+const char *gettimeofstr() {
+	time_t t;
+	struct tm *tmp;
+
+	t = time(NULL);
+	tmp = localtime(&t);
+	if (tmp == NULL) {
+		perror("localtime error");
+		return "";
+	}
+
+	if (strftime(SINFO(strftime), sizeof(SINFO(strftime)), "%F %T", tmp) == 0) {
+		perror("strftime error");
+		return "";
+	}
+
+	return SINFO(strftime);
+}
 
 void thread_sigmask() {
 	register int sig;
@@ -66,6 +93,10 @@ void thread_init() {
 	thread_sigmask();
 
 	mthread = pthread_self();
+}
+
+void thread_running() {
+	SG(server_context) = &main_sinfo;
 }
 
 void thread_destroy() {
@@ -159,6 +190,7 @@ void *thread_task(task_t *task) {
 	siginfo_t info;
 	struct timespec timeout;
 	char path[PATH_MAX];
+	server_info_t sinfo;
 
 	sigemptyset(&waitset);
 	sigaddset(&waitset, SIGINT);
@@ -181,11 +213,15 @@ void *thread_task(task_t *task) {
 
 	sem_post(&sem);
 
-	dprintf("[%s] begin\n", task->name);
-
 	ts_resource(0);
 
+	SG(server_context) = &sinfo;
+
+	dprintf("[%s] begin\n", task->name);
+
 newtask:
+	dprintf("[%s] request\n", task->name);
+	
 	if(task->logfile && task->logmode) {
 		pthread_setspecific(pkey, task);
 	} else {
@@ -276,8 +312,6 @@ newtask:
 	pthread_mutex_unlock(&wlock);
 
 err:
-	ts_free_thread();
-
 	pthread_mutex_lock(&nlock);
 	threads--;
 	if(head_task == task) {
@@ -300,6 +334,8 @@ err:
 	dprintf("[%s] end\n", task->name);
 
 	free_task(task);
+
+	ts_free_thread();
 
 	pthread_exit(NULL);
 }
