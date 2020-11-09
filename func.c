@@ -494,7 +494,7 @@ static PHP_FUNCTION(task_set_delay) {
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_task_set_threads, 0)
-ZEND_ARG_INFO(0, delay)
+ZEND_ARG_INFO(0, threads)
 ZEND_END_ARG_INFO()
 
 static PHP_FUNCTION(task_set_threads) {
