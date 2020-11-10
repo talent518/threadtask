@@ -280,13 +280,7 @@ newtask:
 	timeout.tv_sec += delay;
 	pthread_cond_timedwait(&wcond, &wlock, &timeout);
 	wthreads--;
-	if(!isTry) {
-		if(taskn) {
-			free_task(taskn);
-			taskn = NULL;
-			sem_post(&sem);
-		}
-	} else if(taskn) {
+	if(taskn) {
 		taskn->thread = task->thread;
 		taskn->prev = task->prev;
 		taskn->next = task->next;
