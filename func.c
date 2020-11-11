@@ -136,6 +136,8 @@ void free_task(task_t *task) {
 	if(task->logfile) free(task->logfile);
 	if(task->logmode) free(task->logmode);
 	if(task->fp) fclose(task->fp);
+	
+	free(task);
 }
 
 size_t (*old_ub_write_handler)(const char *str, size_t str_length);
