@@ -26,7 +26,7 @@ struct pthread_fake {
 #define pthread_tid_ex(t) ((struct pthread_fake*) t)->tid
 #define pthread_tid pthread_tid_ex(pthread_self())
 
-#define dprintf(fmt, args...) fprintf(stderr, "[%s] [TID:%d] " fmt, gettimeofstr(), pthread_tid, ##args)
+#define dprintf(fmt, args...) if(UNEXPECTED(isDebug)) {fprintf(stderr, "[%s] [TID:%d] " fmt, gettimeofstr(), pthread_tid, ##args);fflush(stderr);}
 
 static sem_t sem;
 static pthread_mutex_t nlock, wlock;
@@ -38,6 +38,7 @@ static volatile unsigned int delay = 1;
 static volatile zend_bool isTry = 1;
 static pthread_t mthread;
 static pthread_key_t pkey;
+static volatile zend_bool isDebug = 1;
 
 #define SINFO(key) ((server_info_t*) SG(server_context))->key
 
@@ -502,10 +503,24 @@ static PHP_FUNCTION(task_set_threads) {
 	if(d > 1) maxthreads = d;
 }
 
+ZEND_BEGIN_ARG_INFO(arginfo_task_set_debug, 0)
+ZEND_ARG_INFO(0, isDebug)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(task_set_debug) {
+	zend_bool d;
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_BOOL(d)
+	ZEND_PARSE_PARAMETERS_END();
+	RETVAL_BOOL(isDebug);
+	isDebug = d;
+}
+
 const zend_function_entry additional_functions[] = {
 	ZEND_FE(create_task, arginfo_create_task)
 	ZEND_FE(task_wait, arginfo_task_wait)
 	ZEND_FE(task_set_delay, arginfo_task_set_delay)
 	ZEND_FE(task_set_threads, arginfo_task_set_threads)
+	ZEND_FE(task_set_debug, arginfo_task_set_debug)
 	{NULL, NULL, NULL}
 };
