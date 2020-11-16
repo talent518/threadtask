@@ -48,7 +48,21 @@ typedef struct _server_info_t {
 
 static server_info_t main_sinfo;
 
-void cli_register_file_handles(void);
+typedef struct _task_t {
+	pthread_t thread;
+	char *name;
+	int argc;
+	char **argv;
+	char *logfile;
+	char *logmode;
+	FILE *fp;
+	struct _task_t *prev;
+	struct _task_t *next;
+} task_t;
+
+static task_t *taskn = NULL;
+static task_t *head_task = NULL;
+static task_t *tail_task = NULL;
 
 const char *gettimeofstr() {
 	time_t t;
@@ -67,6 +81,23 @@ const char *gettimeofstr() {
 	}
 
 	return SINFO(strftime);
+}
+
+void free_task(task_t *task) {
+	register int i;
+
+	free(task->name);
+	for(i=0; i<task->argc; i++) {
+		free(task->argv[i]);
+	}
+	free(task->argv);
+
+	if(task->logfile) free(task->logfile);
+	if(task->logmode) free(task->logmode);
+	if(task->fp) fclose(task->fp);
+
+	
+	free(task);
 }
 
 void thread_sigmask() {
@@ -101,44 +132,17 @@ void thread_running() {
 }
 
 void thread_destroy() {
+	if(taskn) {
+		free_task(taskn);
+		taskn = NULL;
+	}
+	
 	pthread_key_delete(pkey);
 	pthread_cond_destroy(&ncond);
 	pthread_cond_destroy(&wcond);
 	pthread_mutex_destroy(&nlock);
 	pthread_mutex_destroy(&wlock);
 	sem_destroy(&sem);
-}
-
-typedef struct _task_t {
-	pthread_t thread;
-	char *name;
-	int argc;
-	char **argv;
-	char *logfile;
-	char *logmode;
-	FILE *fp;
-	struct _task_t *prev;
-	struct _task_t *next;
-} task_t;
-
-static task_t *taskn = NULL;
-static task_t *head_task = NULL;
-static task_t *tail_task = NULL;
-
-void free_task(task_t *task) {
-	register int i;
-
-	free(task->name);
-	for(i=0; i<task->argc; i++) {
-		free(task->argv[i]);
-	}
-	free(task->argv);
-
-	if(task->logfile) free(task->logfile);
-	if(task->logmode) free(task->logmode);
-	if(task->fp) fclose(task->fp);
-	
-	free(task);
 }
 
 size_t (*old_ub_write_handler)(const char *str, size_t str_length);
@@ -186,6 +190,8 @@ void php_thread_flush_handler(void *server_context) {
 		}
 	}
 }
+
+void cli_register_file_handles(void);
 
 void *thread_task(task_t *task) {
 	zend_file_handle file_handle;
@@ -240,6 +246,9 @@ newtask:
 	if(php_request_startup() == FAILURE) {
 		goto err;
 	}
+
+	SG(headers_sent) = 1;
+	SG(request_info).no_headers = 1;
 
 	zend_register_string_constant(ZEND_STRL("THREAD_TASK_NAME"), task->name, CONST_CS, PHP_USER_CONSTANT);
 
