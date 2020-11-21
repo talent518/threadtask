@@ -21,7 +21,7 @@ func.o: func.h
 
 %.o: %.c
 	@echo CC $@
-	$(CC) $(CFLAGS) -c -o $@ $<
+	@$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
 	@LANG=en rm -vf *.o threadtask
