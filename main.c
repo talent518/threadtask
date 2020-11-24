@@ -71,13 +71,17 @@ static int php_threadtask_startup(sapi_module_struct *sapi_module)
 	return SUCCESS;
 }
 
-volatile zend_bool isReload = 0;
 int main(int argc, char *argv[]) {
 	zend_file_handle file_handle;
 
 	if(argc < 2) {
 		fprintf(stderr, "usage: %s <phpfile>\n", argv[0]);
 		return 255;
+	}
+	
+	if(access(argv[1], F_OK|R_OK) != 0) {
+		perror("phpfile is not exists");
+		return 1;
 	}
 
 	thread_init();
@@ -110,6 +114,8 @@ int main(int argc, char *argv[]) {
 
 	SG(request_info).path_translated = argv[1];
 
+	dprintf("BEGIN THREADTASK\n");
+
 	zend_first_try {
 		zend_stream_init_filename(&file_handle, argv[1]);
 		php_execute_script(&file_handle);
@@ -120,15 +126,14 @@ int main(int argc, char *argv[]) {
 	} zend_end_try();
 
 	if(isReload) {
-		printf("\n\nreload\n\n");
-		execv(argv[0], argv);
-		{
-			char **args = (char**) malloc(sizeof(char*)*(argc+1));
-			memcpy(args, argv, sizeof(char*)*argc);
-			args[argc] = NULL;
-			execv(argv[0], args);
-		}
+		dprintf("RELOAD THREADTASK\n");
+		char **args = (char**) malloc(sizeof(char*)*(argc+1));
+		memcpy(args, argv, sizeof(char*)*argc);
+		args[argc] = NULL;
+		execv(argv[0], args);
 	}
+
+	dprintf("END THREADTASK\n");
 
 	php_embed_shutdown();
 
