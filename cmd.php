@@ -15,6 +15,6 @@ pcntl_signal(SIGINT, 'signal', false);
 var_dump($_SERVER['argv']);
 
 $t = microtime(true);
-usleep(mt_rand(1000, 100000));
+usleep(mt_rand(10000, 1000000));
 echo 'runtime ', (int)((microtime(true)-$t)*1000), 'ms', PHP_EOL;
 

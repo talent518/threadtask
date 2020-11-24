@@ -9,6 +9,7 @@ function signal($sig) {
 	echo 'init sig = ', $sig, PHP_EOL;
 	$running = false;
 	$exitSig = $sig;
+	task_set_run(false);
 }
 
 pcntl_async_signals(true);
@@ -33,6 +34,4 @@ create_task('cmd2', __DIR__ . '/cmd.php', ['cmd2', rand(), bin2hex(random_bytes(
 while($running) usleep(10000);
 
 task_wait($exitSig);
-
-exit('Exit Stoped');
 
