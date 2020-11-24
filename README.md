@@ -25,3 +25,8 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
 * 设置运行状态(默认值为true): task_set_run($isRun = false)
   * $isRun: bool 是否继续运行
 
+### 常量
+* THREAD_TASK_NAME: string 任务名
+* THREAD_TASK_NUM: int 最大线程数
+* THREAD_TASK_DELAY: int php异常运行时等待$delay秒后自动重试任务
+

@@ -73,13 +73,37 @@ static int php_threadtask_startup(sapi_module_struct *sapi_module)
 
 int main(int argc, char *argv[]) {
 	zend_file_handle file_handle;
+	int opt;
 
-	if(argc < 2) {
-		fprintf(stderr, "usage: %s <phpfile>\n", argv[0]);
-		return 255;
+opts:
+	while((opt = getopt(argc, argv, "Dd:t:r")) != -1) {
+		switch(opt) {
+			case 'D':
+				isDebug = 1;
+				break;
+			case 'd':
+				delay = atoi(optarg);
+				if(delay < 1) delay = 1;
+				break;
+			case 't':
+				maxthreads = atoi(optarg);
+				if(maxthreads < 1) maxthreads = 1;
+				break;
+			case 'r':
+				isReload = 1;
+				break;
+			case 'h':
+			case '?':
+			default:
+				goto usage;
+		}
 	}
 	
-	if(access(argv[1], F_OK|R_OK) != 0) {
+	if(optind >= argc) {
+		goto usage;
+	}
+	
+	if(access(argv[optind], F_OK|R_OK) != 0) {
 		perror("phpfile is not exists");
 		return 1;
 	}
@@ -101,7 +125,7 @@ int main(int argc, char *argv[]) {
 	php_embed_module.ub_write = php_thread_ub_write_handler;
 	php_embed_module.flush = php_thread_flush_handler;
 
-	if(php_embed_init(argc-1, argv+1) == FAILURE) {
+	if(php_embed_init(argc-optind, argv+optind) == FAILURE) {
 		fprintf(stderr, "php_embed_init failure\n");
 		return 1;
 	}
@@ -112,12 +136,15 @@ int main(int argc, char *argv[]) {
 
 	CG(skip_shebang) = 1;
 
-	SG(request_info).path_translated = argv[1];
+	SG(request_info).path_translated = argv[optind];
+	
+	zend_register_long_constant(ZEND_STRL("THREAD_TASK_NUM"), maxthreads, CONST_CS, PHP_USER_CONSTANT);
+	zend_register_long_constant(ZEND_STRL("THREAD_TASK_DELAY"), delay, CONST_CS, PHP_USER_CONSTANT);
 
 	dprintf("BEGIN THREADTASK\n");
 
 	zend_first_try {
-		zend_stream_init_filename(&file_handle, argv[1]);
+		zend_stream_init_filename(&file_handle, argv[optind]);
 		php_execute_script(&file_handle);
 	} zend_catch {
 		if(EG(exit_status)) {
@@ -140,4 +167,13 @@ int main(int argc, char *argv[]) {
 	thread_destroy();
 
 	return 0;
+usage:
+	fprintf(stderr, 
+		"usage: %s [-D] [-d <delay>] [-t <threads>] [-r] <phpfile>\n"
+		"    -D              Debug info\n"
+		"    -d <delay>      Delay seconds\n"
+		"    -t <threads>    Max threads\n"
+		"    -r              Auto reload\n"
+		, argv[0]);
+	return 255;
 }

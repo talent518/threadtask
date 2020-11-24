@@ -20,15 +20,15 @@
 static sem_t sem, rsem;
 static pthread_mutex_t nlock, wlock;
 static pthread_cond_t ncond;
-static volatile unsigned int maxthreads = 256;
 static volatile unsigned int threads = 0;
 static volatile unsigned int wthreads = 0;
-static volatile unsigned int delay = 1;
 static volatile zend_bool isRun = 1;
 static pthread_t mthread;
 static pthread_key_t pkey;
 
-volatile zend_bool isDebug = 1;
+volatile unsigned int maxthreads = 256;
+volatile unsigned int delay = 1;
+volatile zend_bool isDebug = 0;
 volatile zend_bool isReload = 0;
 
 #define SINFO(key) ((server_info_t*) SG(server_context))->key
@@ -243,6 +243,8 @@ newtask:
 	SG(request_info).no_headers = 1;
 
 	zend_register_string_constant(ZEND_STRL("THREAD_TASK_NAME"), task->name, CONST_CS, PHP_USER_CONSTANT);
+	zend_register_long_constant(ZEND_STRL("THREAD_TASK_NUM"), maxthreads, CONST_CS, PHP_USER_CONSTANT);
+	zend_register_long_constant(ZEND_STRL("THREAD_TASK_DELAY"), delay, CONST_CS, PHP_USER_CONSTANT);
 
 	cli_register_file_handles();
 
