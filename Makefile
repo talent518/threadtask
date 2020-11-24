@@ -13,7 +13,7 @@ $(PHPDIR)/lib/libphp7.so:
 	$(error The $@ is not directory. Please usage "make PHPDIR=<dir>" by php dir, for example: /opt/phpts)
 
 all: threadtask
-threadtask: main.o func.o
+threadtask: main.o func.o hash.o
 	@echo LD $@
 	@$(CC) -o $@ $^ $(LDFLAGS)
 
