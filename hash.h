@@ -72,6 +72,8 @@ typedef struct hash_table_t {
 	zend_bool bApplyProtection;
 } hash_table_t;
 
+void hash_table_value_free(value_t *value);
+
 /* startup/shutdown */
 int _hash_table_init(hash_table_t *ht, uint nSize, hash_dtor_func_t pDestructor, zend_bool bApplyProtection);
 void hash_table_destroy(hash_table_t *ht);
@@ -147,22 +149,5 @@ int hash_table_rehash(hash_table_t *ht);
 void hash_table_reindex(hash_table_t *ht, zend_bool only_integer_keys);
 
 ulong hash_table_func(const char *arKey, uint nKeyLength);
-
-static void hash_table_value_free(value_t *value) {
-	switch(value->type) {
-	case STR_T:
-		free(value->str);
-		break;
-	case HT_T:
-		hash_table_destroy((hash_table_t*) value->ptr);
-		free(value->ptr);
-		break;
-	case PTR_T:
-		break;
-	default:
-		break;
-	}
-	value->type = NULL_T;
-}
 
 #endif							/* _HASH_H */
