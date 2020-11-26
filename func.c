@@ -593,6 +593,11 @@ ZEND_ARG_INFO(0, key)
 ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(arginfo_share_var_set, 0, 0, 2)
+ZEND_ARG_INFO(0, key)
+ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_share_var_del, 0, 0, 1)
 ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
@@ -602,7 +607,6 @@ ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_share_var_destory, 0, 0, 0)
-ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
 
 #define SHARE_VAR_RLOCK() \
@@ -1217,6 +1221,41 @@ static PHP_FUNCTION(share_var_inc)
 	RETVAL_TRUE;
 }
 
+static PHP_FUNCTION(share_var_set)
+{
+	zval *arguments;
+	int arg_num = ZEND_NUM_ARGS(), i;
+	if(arg_num <= 0) return;
+
+	arguments = (zval *) safe_emalloc(sizeof(zval), arg_num, 0);
+	if(zend_get_parameters_array_ex(arg_num, arguments) == FAILURE) goto end;
+
+	SHARE_VAR_WLOCK();
+	value_t v1 = {.type=HT_T,.ptr=share_var_ht}, v2 = {.type=NULL_T};
+	RETVAL_FALSE;
+	for(i=0; i<arg_num && v1.type == HT_T; i++) {
+		if(i+1 == arg_num) {
+			zval_to_value(&arguments[i+1], &v2);
+			if(Z_TYPE(arguments[i]) == IS_LONG) {
+				hash_table_index_update((hash_table_t*) v1.ptr, Z_LVAL(arguments[i]), &v2, NULL);
+			} else {
+				convert_to_string(&arguments[i]);
+				hash_table_update((hash_table_t*) v1.ptr, Z_STRVAL(arguments[i]), Z_STRLEN(arguments[i]), &v2, NULL);
+			}
+		} else if(Z_TYPE(arguments[i]) == IS_LONG) {
+			if(hash_table_index_find((hash_table_t*) v1.ptr, Z_LVAL(arguments[i]), &v2) == FAILURE) break;
+		} else {
+			convert_to_string(&arguments[0]);
+			if(hash_table_find((hash_table_t*) v1.ptr, Z_STRVAL(arguments[i]), Z_STRLEN(arguments[i]), &v2) == FAILURE) break;
+		}
+		v1 = v2;
+	}
+	SHARE_VAR_WUNLOCK();
+
+	end:
+	efree(arguments);
+}
+
 static PHP_FUNCTION(share_var_del)
 {
 	zval *arguments;
@@ -1298,6 +1337,7 @@ const zend_function_entry additional_functions[] = {
 	PHP_FE(share_var_get, arginfo_share_var_get)
 	PHP_FE(share_var_put, arginfo_share_var_put)
 	PHP_FE(share_var_inc, arginfo_share_var_inc)
+	PHP_FE(share_var_set, arginfo_share_var_set)
 	PHP_FE(share_var_del, arginfo_share_var_del)
 	PHP_FE(share_var_clean, arginfo_share_var_clean)
 	PHP_FE(share_var_destory, arginfo_share_var_destory)

@@ -30,6 +30,7 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
 * 读取共享变量: share_var_get([$key1,...])
 * 写入共享变量(至少一个参数，每个参数代码要查询的多维数组的key，最后一个是数组可与存在数组合并，否则则替换): share_var_put(...)
 * 累加共享变量($key[,...]查到的变量：是数组则会把$value附加到数组后，是字符串则在其后附加$value字符串，其它数值类型或布尔值则会按数值累加): share_var_inc($key[,...],$value)
+* 写入共享变量: share_var_set($key[,...], $value)
 * 删除共享变量: share_var_del($key1[,...])
 * 清空共享变量: share_var_clean()
 * 回收共享变量(只能在主线程中使用): share_var_destory()

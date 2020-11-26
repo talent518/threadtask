@@ -74,6 +74,23 @@
 	}																				\
 } while (0)
 
+void hash_table_value_free(value_t *value) {
+	switch(value->type) {
+	case STR_T:
+		free(value->str);
+		break;
+	case HT_T:
+		hash_table_destroy((hash_table_t*) value->ptr);
+		free(value->ptr);
+		break;
+	case PTR_T:
+		break;
+	default:
+		break;
+	}
+	value->type = NULL_T;
+}
+
 int hash_table_rehash(hash_table_t *ht) {
 	register bucket_t *p;
 	register uint nIndex;
