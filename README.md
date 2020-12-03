@@ -8,12 +8,15 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
 * 重启信号SIGUSR1,SIGUSR2: kill -SIGUSR1 pid 或者在init.php中使用task_wait(SIGUSR1)
 
 ### 函数说明
-* 创建任务: create_task($taskname, $filename, $params, $logfile = NULL, $logmode = 'ab')
+* 创建任务: create_task($taskname, $filename, $params, $logfile = NULL, $logmode = 'ab', &$res = null)
   * $taskname: string 任务名称
   * $filename: string php文件的完整/相对路径，相当于php命令中的file
   * $params: array cli参数，与php filename arg1 arg2 arg3 ...命令中的参数[arg1,arg2,arg3...]类似
   * $logfile: string 输出写入到日志文件
   * $logmode: string 打开文件的模式
+  * $res: resource 用于等待任务完成
+* 等待任务完成函数: task_join($res)
+  * $res: resource 由create_task的第6个引用传递的参数$res而来
 * 向所有线程发送$signal信号，并等待所有线程结束: task_wait($signal)
   * $signal: int 进程信号，如: SIGINT,SIGTERM,SIGUSR1,SIGUSR2
 * php异常运行时等待$delay秒后自动重试任务(默认值为1): task_set_delay($delay)
