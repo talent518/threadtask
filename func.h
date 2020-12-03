@@ -14,7 +14,9 @@ struct pthread_fake {
 
 #define dprintf(fmt, args...) if(UNEXPECTED(isDebug)) {fprintf(stderr, "[%s] [TID:%d] " fmt, gettimeofstr(), pthread_tid, ##args);fflush(stderr);}
 
-extern const zend_function_entry additional_functions[];
+#define ZEND_REGISTER_RESOURCE(var, ctx, le_inflate) ZVAL_RES(var, zend_register_resource(ctx, le_inflate))
+
+extern zend_module_entry threadtask_module_entry;
 extern volatile unsigned int maxthreads;
 extern volatile unsigned int delay;
 extern volatile zend_bool isDebug;

@@ -62,12 +62,11 @@ static void sapi_cli_register_variables(zval *var) {
 	//php_var_dump(var, 0);
 }
 
-static int php_threadtask_startup(sapi_module_struct *sapi_module)
-{
-	php_embed_module.additional_functions = additional_functions;
-	if (php_module_startup(sapi_module, NULL, 0)==FAILURE) {
+static int php_threadtask_startup(sapi_module_struct *sapi_module) {
+	if (php_module_startup(sapi_module, &threadtask_module_entry, 1) == FAILURE) {
 		return FAILURE;
 	}
+	
 	return SUCCESS;
 }
 
