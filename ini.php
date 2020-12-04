@@ -59,9 +59,16 @@ while($running) {
 			$cfg['type'] = strtolower($cfg['type']);
 			
 			switch($cfg['type']) {
-				case 'daemon':
+				case 'php':
 				case 'once':
-					DEBUG or create_task($key, $cfg['file'], $cfg['args']??[], $cfg['logfile']??null, $cfg['logmode']??'ab') or die("create task failure\n");
+				case 'script':
+				case 'daemon':
+					if($cfg['type'] === 'once') $n = 1;
+					else $n = max(1, $cfg['count'] ?? 1);
+					
+					for($i=0; $i<$n; $i++) {
+						DEBUG or create_task($key, $cfg['file'], $cfg['args']??[], $cfg['logfile']??null, $cfg['logmode']??'ab') or die("create task failure\n");
+					}
 					unset($cfgs[$key]);
 				case 'cron':
 					if(!isset($cfg['file'])) {
@@ -87,7 +94,7 @@ while($running) {
 		if(!$running) break;
 	}
 
-	usleep(1000000 - 1000000 * (microtime(true) - $time));
+	isset($ctime) and usleep(1000000 - 1000000 * (microtime(true) - $time));
 	
 	$time = microtime(true);
 	$ctime = (int) $time;
@@ -115,6 +122,11 @@ while($running) {
 		}
 		
 		$mtime = filemtime($file);
+		if($mtime === false) {
+			$mtime = $ctime;
+			touch($file);
+			continue;
+		}
 		
 		$a0 = array_combine(KEYS, $a0);
 		$a2 = array_combine(KEYS, explode(' ', date('Y m d w H i s', $mtime)));
@@ -131,37 +143,32 @@ while($running) {
 			if(!strncmp($v, '*/', 2)) {
 				$v = max(1, substr($v, 2));
 				
-				if($v == 1) {
-					if($a1[$k] === $a2[$k]) {
-						$isNext = false;
+				switch($k) {
+					case 'm':
+						$t = ($a1['Y'] - $a2['Y']) * 12 + $a1['m'] - $a2['m'];
 						break;
-					}
-				} else {
-					switch($k) {
-						case 'm':
-							$t = ($a1['Y'] - $a2['Y']) * 12 + $a1['m'] - $a2['m'];
-							break;
-						case 'd':
-						case 'w':
-							$t = ($ctime - $mtime) / 86400;
-							break;
-						case 'H':
-							$t = ($ctime - $mtime) / 3600;
-							break;
-						case 'i':
-							$t = ($ctime - $mtime) / 60;
-							break;
-						case 's':
-							$t = $ctime - $mtime;
-							break;
-						default:
-							break;
-					}
-					
-					if($t < $v) {
-						$isNext = false;
+					case 'd':
+						$t = ($ctime - $mtime) / 86400;
 						break;
-					}
+					case 'w':
+						$t = ($ctime - $mtime) / (7 * 86400);
+						break;
+					case 'H':
+						$t = ($ctime - $mtime) / 3600;
+						break;
+					case 'i':
+						$t = ($ctime - $mtime) / 60;
+						break;
+					case 's':
+						$t = $ctime - $mtime;
+						break;
+					default:
+						break;
+				}
+				
+				if($t < $v) {
+					$isNext = false;
+					break;
 				}
 			} else {
 				if($a0[$k] !== $a1[$k] || $a2[$k] === $a1[$k]) {
