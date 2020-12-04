@@ -446,7 +446,17 @@ static PHP_FUNCTION(create_task) {
 	dprintf("TASK0: %s\n", taskname);
 	idle:
 	pthread_mutex_lock(&wlock);
-	if(wthreads && !taskn) {
+	if(wthreads) {
+		if(taskn) {
+			pthread_mutex_unlock(&wlock);
+			usleep(500);
+			if(isRun) goto idle;
+			else {
+				free_task(task);
+				RETURN_FALSE;
+			}
+		}
+
 		taskn = task;
 		pthread_mutex_unlock(&wlock);
 		sem_post(&rsem);

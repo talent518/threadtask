@@ -50,4 +50,6 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
 * 等待任务完成: ./threadtask sem.php
 * 共享变量: ./threadtask var.php
 * ini配置加载: ./threadtask ini.php demo.ini
+  * SIGUSR1: 重启进程(restart)
+  * SIGUSR2: 重载配置(reload)
 

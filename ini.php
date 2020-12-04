@@ -3,7 +3,12 @@ $running = true;
 $exitSig = 0;
 
 function signal($sig) {
-	global $running, $exitSig;
+	global $running, $exitSig, $T;
+
+	if($sig == SIGUSR2) {
+		$T = 0;
+		return;
+	}
 
 	$running = false;
 	$exitSig = $sig;
@@ -13,6 +18,8 @@ function signal($sig) {
 pcntl_async_signals(true);
 pcntl_signal(SIGTERM, 'signal', false);
 pcntl_signal(SIGINT, 'signal', false);
+pcntl_signal(SIGUSR1, 'signal', false);
+pcntl_signal(SIGUSR2, 'signal', false);
 
 if(empty($_SERVER['argv'][1])) exit("usage: {$_SERVER['_']} {$_SERVER['argv'][0]} <inifile> [isdebug [timefile [lockfile]]]\n");
 
