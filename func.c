@@ -93,7 +93,6 @@ void free_task(task_t *task) {
 	if(task->logfile) free(task->logfile);
 	if(task->logmode) free(task->logmode);
 	if(task->fp) fclose(task->fp);
-
 	
 	free(task);
 }
@@ -268,11 +267,13 @@ newtask:
 	if(EG(exit_status)) {
 		dprintf("[%s] exit_status = %d\n", task->name, EG(exit_status));
 		php_request_shutdown(NULL);
-		timeout.tv_sec = delay;
-		timeout.tv_nsec = 0;
-		sigprocmask(SIG_BLOCK, &waitset, NULL);
-		sigtimedwait(&waitset, &info, &timeout);
-		if(isRun && !task->sem) goto loop;
+		if(!task->sem) {
+			timeout.tv_sec = delay;
+			timeout.tv_nsec = 0;
+			sigprocmask(SIG_BLOCK, &waitset, NULL);
+			sigtimedwait(&waitset, &info, &timeout);
+			if(isRun) goto loop;
+		}
 	} else {
 		php_request_shutdown(NULL);
 	}
@@ -383,11 +384,13 @@ static PHP_FUNCTION(create_task) {
 	pthread_attr_t attr;
 	int ret;
 	struct timespec timeout;
-	
+
+#if 0	
 	if(mthread != pthread_self()) {
-		dprintf("create_task() is not running in the main thread\n");
+		php_printf("The create_task function can only be executed in main thread\n");
 		return;
 	}
+#endif
 
 	ZEND_PARSE_PARAMETERS_START(3, 6)
 		Z_PARAM_STRING(taskname, taskname_len)
@@ -440,13 +443,15 @@ static PHP_FUNCTION(create_task) {
 		task->argv[++ret] = strndup(Z_STRVAL_P(val), Z_STRLEN_P(val));
 	} ZEND_HASH_FOREACH_END();
 
+	dprintf("TASK0: %s\n", taskname);
 	idle:
 	pthread_mutex_lock(&wlock);
-	if(wthreads) {
+	if(wthreads && !taskn) {
 		taskn = task;
 		pthread_mutex_unlock(&wlock);
 		sem_post(&rsem);
 		sem_wait(&sem);
+		dprintf("TASK1: %s\n", taskname);
 		RETURN_TRUE;
 	} else {
 		pthread_mutex_unlock(&wlock);
@@ -454,10 +459,11 @@ static PHP_FUNCTION(create_task) {
 		pthread_mutex_lock(&nlock);
 		if(threads >= maxthreads) {
 			pthread_mutex_unlock(&nlock);
-			usleep(50);
+			usleep(500);
 			if(isRun) goto idle;
 		} else pthread_mutex_unlock(&nlock);
 	}
+	dprintf("TASK1: %s\n", taskname);
 	
 	if(!isRun) {
 		free_task(task);
@@ -490,6 +496,27 @@ static PHP_FUNCTION(create_task) {
 	RETURN_BOOL(ret == 0);
 }
 
+ZEND_BEGIN_ARG_INFO(arginfo_task_is_run, 1)
+ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(task_is_run) {
+	zval *res;
+	sem_t *ptr;
+	int v = 0;
+	
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_RESOURCE(res)
+	ZEND_PARSE_PARAMETERS_END();
+	
+	ptr = (sem_t*) zend_fetch_resource_ex(res, PHP_THREADTASK_DESCRIPTOR, le_threadtask_descriptor);
+	if(ptr && !sem_getvalue(ptr, &v) && !v) {
+		RETURN_TRUE;
+	} else {
+		RETURN_FALSE;
+	}
+}
+
 ZEND_BEGIN_ARG_INFO(arginfo_task_join, 1)
 ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 0)
 ZEND_END_ARG_INFO()
@@ -517,7 +544,12 @@ static PHP_FUNCTION(task_wait) {
 	pthread_t thread;
 	zend_long sig;
 	int i;
-	
+
+	if(mthread != pthread_self()) {
+		php_printf("The task_wait function can only be executed in main thread\n");
+		return;
+	}
+
 	ZEND_PARSE_PARAMETERS_START(1, 1)
 		Z_PARAM_LONG(sig)
 	ZEND_PARSE_PARAMETERS_END();
@@ -1389,6 +1421,7 @@ static PHP_FUNCTION(share_var_destory)
 static const zend_function_entry ext_functions[] = {
 	ZEND_FE(create_task, arginfo_create_task)
 	ZEND_FE(task_join, arginfo_task_join)
+	ZEND_FE(task_is_run, arginfo_task_is_run)
 	ZEND_FE(task_wait, arginfo_task_wait)
 	ZEND_FE(task_set_delay, arginfo_task_set_delay)
 	ZEND_FE(task_set_threads, arginfo_task_set_threads)

@@ -15,6 +15,8 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
   * $logfile: string 输出写入到日志文件
   * $logmode: string 打开文件的模式
   * $res: resource 用于等待任务完成
+* 任务是否已完成函数: task_is_run($res)
+  * $res: resource 由create_task的第6个引用传递的参数$res而来
 * 等待任务完成函数: task_join($res)
   * $res: resource 由create_task的第6个引用传递的参数$res而来
 * 向所有线程发送$signal信号，并等待所有线程结束: task_wait($signal)
@@ -42,4 +44,10 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
 * THREAD_TASK_NAME: string 任务名
 * THREAD_TASK_NUM: int 最大线程数
 * THREAD_TASK_DELAY: int php异常运行时等待$delay秒后自动重试任务
+
+### 使用示例
+* 简单任务控制: ./threadtask init.php
+* 等待任务完成: ./threadtask sem.php
+* 共享变量: ./threadtask var.php
+* ini配置加载: ./threadtask ini.php demo.ini
 
