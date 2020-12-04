@@ -14,13 +14,18 @@ pcntl_async_signals(true);
 pcntl_signal(SIGTERM, 'signal', false);
 pcntl_signal(SIGINT, 'signal', false);
 
-if(empty($_SERVER['argv'][1])) exit("usage: {$_SERVER['_']} {$_SERVER['argv'][0]} <inifile> [isdebug]\n");
+if(empty($_SERVER['argv'][1])) exit("usage: {$_SERVER['_']} {$_SERVER['argv'][0]} <inifile> [isdebug [timefile [lockfile]]]\n");
 
 define('FILE', $_SERVER['argv'][1]);
-define('DEBUG', !empty($_SERVER['argv'][2]));
+define('DEBUG', $_SERVER['argv'][2]??0);
+define('TIME', $_SERVER['argv'][3]??FILE.'.time');
+define('LOCK', $_SERVER['argv'][4]??FILE.'.lock');
 define('KEYS', ['Y', 'm', 'd', 'w', 'H', 'i', 's']);
 
 is_file(FILE) or die("ini file not exists\n");
+
+is_file(LOCK) and die("running...\n");
+touch(LOCK);
 
 ini_set('memory_limit', -1);
 
@@ -30,6 +35,7 @@ share_var_init();
 
 $T = 0;
 $crons = [];
+$times = (($t = @file_get_contents(TIME))?(json_decode($t, true)?:[]):[]);
 $time = microtime(true);
 while($running) {
 	if($T != ($t = filemtime(FILE))) {
@@ -67,7 +73,9 @@ while($running) {
 					else $n = max(1, $cfg['count'] ?? 1);
 					
 					for($i=0; $i<$n; $i++) {
-						DEBUG or create_task($key, $cfg['file'], $cfg['args']??[], $cfg['logfile']??null, $cfg['logmode']??'ab') or die("create task failure\n");
+						if(!DEBUG && !create_task($key, $cfg['file'], $cfg['args']??[], $cfg['logfile']??null, $cfg['logmode']??'ab')) {
+							echo "create task $key failure\n";
+						}
 					}
 					unset($cfgs[$key]);
 				case 'cron':
@@ -112,21 +120,19 @@ while($running) {
 			if(task_is_run($crons[$key])) continue;
 			else unset($crons[$key]);
 		}
-
-		$file = dirname(FILE) . '/.' . $key . '.lock';
 		
+		if(!isset($times[$key])) {
+			$times[$key] = $ctime;
+			continue;
+		}
+
 		$a0 = preg_split('/\s/', '* ' . $cfg['cron']);
 		if(count($a0) != count(KEYS)) {
 			echo "Unknown cron '{$cfg['cron']}' parameter size at key '$key'\n";
 			continue;
 		}
-		
-		$mtime = filemtime($file);
-		if($mtime === false) {
-			$mtime = $ctime;
-			touch($file);
-			continue;
-		}
+
+		$mtime = $times[$key];
 		
 		$a0 = array_combine(KEYS, $a0);
 		$a2 = array_combine(KEYS, explode(' ', date('Y m d w H i s', $mtime)));
@@ -141,8 +147,8 @@ while($running) {
 			}
 			
 			if(!strncmp($v, '*/', 2)) {
-				$v = max(1, substr($v, 2));
-				
+				$v = max(1, (int) substr($v, 2));
+
 				switch($k) {
 					case 'm':
 						$t = ($a1['Y'] - $a2['Y']) * 12 + $a1['m'] - $a2['m'];
@@ -163,6 +169,7 @@ while($running) {
 						$t = $ctime - $mtime;
 						break;
 					default:
+						$t = 0;
 						break;
 				}
 				
@@ -191,9 +198,11 @@ while($running) {
 				echo "a2: $t\n";
 			}
 
-			touch($file);
-
-			DEBUG or create_task($key, $cfg['file'], $cfg['args']??[], $cfg['logfile']??null, $cfg['logmode']??'ab', $crons[$key]) or die("create task failure\n");
+			if(!DEBUG && !create_task($key, $cfg['file'], $cfg['args']??[], $cfg['logfile']??null, $cfg['logmode']??'ab', $crons[$key])) {
+				echo "create task $key failure\n";
+			} else {
+				$times[$key] = $ctime;
+			}
 		}
 	}
 	unset($cfg);
@@ -206,6 +215,10 @@ task_wait($exitSig?:SIGINT);
 $crons = null;
 
 share_var_destory();
+
+file_put_contents(TIME, json_encode($times, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
+
+unlink(LOCK);
 
 function cfg_vars(array &$vars) {
 	foreach($vars as &$var) {
