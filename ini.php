@@ -6,7 +6,7 @@ function signal($sig) {
 	global $running, $exitSig, $T;
 
 	if($sig == SIGUSR2) {
-		$T = 0;
+		$T = 1;
 		return;
 	}
 
@@ -45,7 +45,14 @@ $crons = [];
 $times = (($t = @file_get_contents(TIME))?(json_decode($t, true)?:[]):[]);
 $time = microtime(true);
 while($running) {
+	clearstatcache(true, FILE);
+
 	if($T != ($t = filemtime(FILE))) {
+		if($T) {
+			$s = date('H:i:s');
+			echo "[$s] RELOAD\n";
+		}
+		
 		$T = $t;
 		
 		task_wait(SIGINT);
@@ -109,7 +116,7 @@ while($running) {
 		if(!$running) break;
 	}
 
-	isset($ctime) and usleep(1000000 - 1000000 * (microtime(true) - $time));
+	isset($ctime) and ($t = 1000000 - 1000000 * (microtime(true) - $time)) >= 0 and usleep($t);
 	
 	$time = microtime(true);
 	$ctime = (int) $time;

@@ -385,13 +385,6 @@ static PHP_FUNCTION(create_task) {
 	int ret;
 	struct timespec timeout;
 
-#if 0	
-	if(mthread != pthread_self()) {
-		php_printf("The create_task function can only be executed in main thread\n");
-		return;
-	}
-#endif
-
 	ZEND_PARSE_PARAMETERS_START(3, 6)
 		Z_PARAM_STRING(taskname, taskname_len)
 		Z_PARAM_STRING(filename, filename_len)
@@ -406,8 +399,6 @@ static PHP_FUNCTION(create_task) {
 		perror("access() is error");
 		RETURN_FALSE;
 	}
-	
-	if(!isRun) RETURN_FALSE;
 
 	ht = Z_ARRVAL_P(params);
 	task = (task_t *) malloc(sizeof(task_t));
@@ -450,11 +441,7 @@ static PHP_FUNCTION(create_task) {
 		if(taskn) {
 			pthread_mutex_unlock(&wlock);
 			usleep(500);
-			if(isRun) goto idle;
-			else {
-				free_task(task);
-				RETURN_FALSE;
-			}
+			goto idle;
 		}
 
 		taskn = task;
@@ -470,24 +457,12 @@ static PHP_FUNCTION(create_task) {
 		if(threads >= maxthreads) {
 			pthread_mutex_unlock(&nlock);
 			usleep(500);
-			if(isRun) goto idle;
-		} else pthread_mutex_unlock(&nlock);
+			goto idle;
+		}
+		threads++;
+		pthread_mutex_unlock(&nlock);
 	}
 	dprintf("TASK1: %s\n", taskname);
-	
-	if(!isRun) {
-		free_task(task);
-		RETURN_FALSE;
-	}
-
-	pthread_mutex_lock(&nlock);
-	if(threads >= maxthreads) {
-		pthread_mutex_unlock(&nlock);
-		free_task(task);
-		RETURN_FALSE;
-	}
-	threads++;
-	pthread_mutex_unlock(&nlock);
 
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
