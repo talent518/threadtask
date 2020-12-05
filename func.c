@@ -468,7 +468,9 @@ static PHP_FUNCTION(create_task) {
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 	ret = pthread_create(&thread, &attr, (void*(*)(void*)) thread_task, task);
 	if(ret != 0) {
+		errno = ret;
 		perror("pthread_create() is error");
+		errno = 0;
 	}
 	pthread_attr_destroy(&attr);
 
