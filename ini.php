@@ -51,6 +51,8 @@ while($running) {
 		if($T) {
 			$s = date('H:i:s');
 			echo "[$s] RELOAD\n";
+
+			file_put_contents(TIME, json_encode($times, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
 		}
 		
 		$T = $t;
@@ -233,6 +235,11 @@ share_var_destory();
 file_put_contents(TIME, json_encode($times, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
 
 unlink(LOCK);
+
+if($exitSig == SIGUSR1) {
+	$s = date('H:i:s');
+	echo "[$s] RESTART\n";
+}
 
 function cfg_vars(array &$vars) {
 	foreach($vars as &$var) {
