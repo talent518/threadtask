@@ -128,7 +128,7 @@ while($running) {
 		$isHas = false;
 		
 		$t = implode(' ', $a1);
-		echo "a1: $t\n";
+		echo "$t\n";
 	}
 
 	foreach($cfgs as $key => &$cfg) {
@@ -151,7 +151,6 @@ while($running) {
 		$mtime = $times[$key];
 		
 		$a0 = array_combine(KEYS, $a0);
-		$a2 = array_combine(KEYS, explode(' ', date('Y m d w H i s', $mtime)));
 
 		$isNext = true;
 		foreach($a0 as $k=>$v) {
@@ -167,7 +166,8 @@ while($running) {
 
 				switch($k) {
 					case 'm':
-						$t = ($a1['Y'] - $a2['Y']) * 12 + $a1['m'] - $a2['m'];
+						@list($Y, $m) = explode(' ', date('Y m', $mtime));
+						$t = ($a1['Y'] - $Y) * 12 + $a1['m'] - $m;
 						break;
 					case 'd':
 						$t = ($ctime - $mtime) / 86400;
@@ -194,7 +194,7 @@ while($running) {
 					break;
 				}
 			} else {
-				if($a0[$k] !== $a1[$k] || $a2[$k] === $a1[$k]) {
+				if($v != $a1[$k]) {
 					$isNext = false;
 					break;
 				}
@@ -205,13 +205,9 @@ while($running) {
 			if(DEBUG) {
 				$isHas = true;
 				
-				echo "-------------------------\n$key\n";
+				echo "-------------------------\n";
 				
-				$t = implode(' ', $a0);
-				echo "a0: $t\n";
-				
-				$t = implode(' ', $a2);
-				echo "a2: $t\n";
+				var_dump($key, $cfg);
 			}
 
 			if(!DEBUG && !create_task($key, $cfg['file'], $cfg['args']??[], $cfg['logfile']??null, $cfg['logmode']??'ab', $crons[$key])) {
