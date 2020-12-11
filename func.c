@@ -21,7 +21,7 @@
 #include "func.h"
 #include "hash.h"
 
-static sem_t sem, rsem;
+static sem_t wsem, rsem;
 static pthread_mutex_t nlock, wlock;
 static pthread_cond_t ncond;
 static volatile unsigned int threads = 0;
@@ -111,7 +111,7 @@ void thread_sigmask() {
 }
 
 void thread_init() {
-	sem_init(&sem, 0, 0);
+	sem_init(&wsem, 0, 0);
 	sem_init(&rsem, 0, 0);
 	pthread_mutex_init(&nlock, NULL);
 	pthread_mutex_init(&wlock, NULL);
@@ -138,7 +138,7 @@ void thread_destroy() {
 	pthread_mutex_destroy(&nlock);
 	pthread_mutex_destroy(&wlock);
 	sem_destroy(&rsem);
-	sem_destroy(&sem);
+	sem_destroy(&wsem);
 }
 
 size_t (*old_ub_write_handler)(const char *str, size_t str_length);
@@ -214,9 +214,9 @@ void *thread_task(task_t *task) {
 	}
 	pthread_mutex_unlock(&nlock);
 
-	sem_post(&sem);
-
 	ts_resource(0);
+
+	sem_wait(&wsem);
 
 	dprintf("begin thread\n");
 
@@ -324,7 +324,6 @@ newtask:
 		task = taskn;
 		taskn = NULL;
 		pthread_mutex_unlock(&wlock);
-		sem_post(&sem);
 		goto newtask;
 	} else pthread_mutex_unlock(&wlock);
 
@@ -443,12 +442,13 @@ static PHP_FUNCTION(create_task) {
 			usleep(500);
 			goto idle;
 		}
-
 		taskn = task;
 		pthread_mutex_unlock(&wlock);
+		
 		sem_post(&rsem);
-		sem_wait(&sem);
+		
 		dprintf("TASK1: %s\n", taskname);
+		
 		RETURN_TRUE;
 	} else {
 		pthread_mutex_unlock(&wlock);
@@ -467,18 +467,15 @@ static PHP_FUNCTION(create_task) {
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 	ret = pthread_create(&thread, &attr, (void*(*)(void*)) thread_task, task);
-	if(ret != 0) {
+	if(ret) {
 		errno = ret;
 		perror("pthread_create() is error");
 		errno = 0;
+		free_task(task);
+	} else {
+		sem_post(&wsem);
 	}
 	pthread_attr_destroy(&attr);
-
-	if(ret != 0) {
-		free_task(task);
-	}
-	
-	sem_wait(&sem);
 
 	RETURN_BOOL(ret == 0);
 }
