@@ -24,8 +24,42 @@ if($isThread) {
 			while($running) share_var_inc(THREAD_TASK_NAME, chr(mt_rand(0,95)+32));
 			break;
 		case 3: // arr[] = rand()
-			share_var_inc(THREAD_TASK_NAME, 0, mt_rand(0,128));
+			share_var_set(THREAD_TASK_NAME, []);
 			while($running) share_var_inc(THREAD_TASK_NAME, mt_rand(0,128));
+			break;
+		case 4:
+			$n = THREAD_TASK_NAME;
+			while($running) {
+				$i = share_var_inc(THREAD_TASK_NAME, 1);
+				echo "\033[31m$n:\033[0m $i\n";
+			}
+			break;
+		case 5: // str += 's'
+			$n = THREAD_TASK_NAME;
+			while($running) {
+				$s = share_var_inc(THREAD_TASK_NAME, chr(mt_rand(0,95)+32));
+				$i = strlen($s);
+				echo "\033[31m$n(\033[36m$i\033[31m):\033[0m $s\n";
+			}
+			break;
+		case 6: // arr[] = rand()
+			$n = THREAD_TASK_NAME;
+			share_var_set(THREAD_TASK_NAME, []);
+			while($running) {
+				$a = share_var_inc(THREAD_TASK_NAME, mt_rand(0,128));
+				echo "\033[31m$n:\033[0m $a\n";
+			}
+			break;
+		case 7: // arr[] = new stdClass
+			$n = THREAD_TASK_NAME;
+			share_var_set(THREAD_TASK_NAME, []);
+			$o = new stdClass;
+			$o->a = 0;
+			while($running) {
+				$a = share_var_inc(THREAD_TASK_NAME, $o);
+				$o->a = $a;
+				echo "\033[31m$n:\033[0m $a\n";
+			}
 			break;
 		default:
 			while($running) share_var_inc(THREAD_TASK_NAME, 1);
@@ -59,15 +93,18 @@ $time = microtime(true) - $time;
 
 switch(TYPE) {
 	case 2:
+	case 5:
 		// var_dump($vars);
 		$n = array_sum(array_map(function($s) {return strlen($s);},$vars));
 		break;
 	case 3:
+	case 6:
+	case 7:
 		// var_dump($vars);
 		$n = array_sum(array_map(function($a) {return count($a);},$vars));
 		break;
 	default:
-		var_dump($vars);
+		// var_dump($vars);
 		$n = array_sum($vars);
 		break;
 }
