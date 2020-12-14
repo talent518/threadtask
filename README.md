@@ -43,6 +43,7 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
 * 清空共享变量: share_var_clean()
 * 清理已过期共享变量: share_var_clean_ex($expire)
   * $expire: int 过期时间戳，必须大于0
+* 统计变量(返回：大于0为数组元素数，小于0为字符长度，true为对象，未找到为null，否则为false): share_var_count([$key1,...])
 * 回收共享变量(只能在主线程中使用): share_var_destory()
 
 ### 常量
