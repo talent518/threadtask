@@ -666,6 +666,10 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_share_var_clean_ex, 0, 0, 1)
 ZEND_ARG_TYPE_INFO(0, expire, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(arginfo_share_var_count, 0, 0, 0)
+ZEND_ARG_VARIADIC_INFO(0, keys)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_share_var_destory, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
@@ -1504,6 +1508,55 @@ static PHP_FUNCTION(share_var_clean_ex)
 	RETVAL_LONG(n);
 }
 
+static PHP_FUNCTION(share_var_count)
+{
+	zval *arguments;
+	int arg_num = ZEND_NUM_ARGS(), i;
+
+	if(!share_var_ht) return;
+
+	if(arg_num <= 0) {
+		SHARE_VAR_RLOCK();
+		RETVAL_LONG(hash_table_num_elements(share_var_ht));
+		SHARE_VAR_RUNLOCK();
+		return;
+	}
+
+	arguments = (zval *) safe_emalloc(sizeof(zval), arg_num, 0);
+	if(zend_get_parameters_array_ex(arg_num, arguments) == FAILURE) goto end;
+
+	SHARE_VAR_RLOCK();
+	value_t v1 = {.type=HT_T,.ptr=share_var_ht,.expire=0}, v2 = {.type=NULL_T,.expire=0};
+	for(i=0; i<arg_num && v1.type == HT_T; i++) {
+		if(Z_TYPE(arguments[i]) == IS_LONG) {
+			if(hash_table_index_find((hash_table_t*) v1.ptr, Z_LVAL(arguments[i]), &v2) == FAILURE) break;
+		} else {
+			convert_to_string(&arguments[0]);
+			if(hash_table_find((hash_table_t*) v1.ptr, Z_STRVAL(arguments[i]), Z_STRLEN(arguments[i]), &v2) == FAILURE) break;
+		}
+		if(i == arg_num - 1) {
+			switch(v2.type) {
+				case STR_T:
+					RETVAL_LONG(- (zend_long) v2.str->len);
+					break;
+				case SERI_T:
+					RETVAL_TRUE;
+					break;
+				case HT_T:
+					RETVAL_LONG(hash_table_num_elements(v2.ptr));
+					break;
+				default:
+					RETVAL_FALSE;
+					break;
+			}
+		} else v1 = v2;
+	}
+	SHARE_VAR_RUNLOCK();
+
+	end:
+	efree(arguments);
+}
+
 static PHP_FUNCTION(share_var_destory)
 {
 	if(mthread != pthread_self()) {
@@ -1546,6 +1599,7 @@ static const zend_function_entry ext_functions[] = {
 	PHP_FE(share_var_del, arginfo_share_var_del)
 	PHP_FE(share_var_clean, arginfo_share_var_clean)
 	PHP_FE(share_var_clean_ex, arginfo_share_var_clean_ex)
+	PHP_FE(share_var_count, arginfo_share_var_count)
 	PHP_FE(share_var_destory, arginfo_share_var_destory)
 	
 	{NULL, NULL, NULL}
