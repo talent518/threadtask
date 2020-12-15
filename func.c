@@ -9,6 +9,8 @@
 #include <signal.h>
 #include <limits.h>
 #include <time.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #include <php.h>
 #include <php_main.h>
@@ -17,6 +19,8 @@
 #include <zend_smart_str.h>
 #include <standard/php_var.h>
 #include <standard/info.h>
+#include <php_network.h>
+#include <sockets/php_sockets.h>
 
 #include "func.h"
 #include "hash.h"
@@ -1579,6 +1583,99 @@ static PHP_FUNCTION(share_var_destory)
 
 // ===========================================================================================================
 
+php_socket *socket_import_file_descriptor(PHP_SOCKET socket) {
+#ifdef SO_DOMAIN
+	int						type;
+	socklen_t				type_len = sizeof(type);
+#endif
+	php_socket 				*retsock;
+	php_sockaddr_storage	addr;
+	socklen_t				addr_len = sizeof(addr);
+#ifndef PHP_WIN32
+	int					 t;
+#endif
+
+    retsock = php_create_socket();
+    retsock->bsd_socket = socket;
+
+    /* determine family */
+#ifdef SO_DOMAIN
+    if (getsockopt(socket, SOL_SOCKET, SO_DOMAIN, &type, &type_len) == 0) {
+		retsock->type = type;
+	} else
+#endif
+	if (getsockname(socket, (struct sockaddr*)&addr, &addr_len) == 0) {
+		retsock->type = addr.ss_family;
+	} else {
+		goto error;
+	}
+
+    /* determine blocking mode */
+#ifndef PHP_WIN32
+    t = fcntl(socket, F_GETFL);
+    if (t == -1) {
+		goto error;
+    } else {
+    	retsock->blocking = !(t & O_NONBLOCK);
+    }
+#endif
+
+    return retsock;
+
+error:
+	efree(retsock);
+	return NULL;
+}
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_socket_export_fd, 0, 0, 1)
+ZEND_ARG_TYPE_INFO(0, Socket, IS_RESOURCE, 0)
+ZEND_ARG_TYPE_INFO(0, is_close, _IS_BOOL, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(socket_export_fd) {
+	zval *zv;
+	php_socket *sock;
+	zend_bool is_close = 0;
+
+	ZEND_PARSE_PARAMETERS_START(1, 2)
+		Z_PARAM_RESOURCE(zv)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_BOOL(is_close)
+	ZEND_PARSE_PARAMETERS_END();
+	
+	if ((sock = (php_socket *) zend_fetch_resource(Z_RES_P(zv), php_sockets_le_socket_name, php_sockets_le_socket())) == NULL) {
+		RETURN_FALSE;
+	}
+	
+	RETVAL_LONG(sock->bsd_socket);
+	
+	if(is_close) {
+		sock->bsd_socket = -1;
+	}
+}
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_socket_import_fd, 0, 0, 1)
+ZEND_ARG_TYPE_INFO(0, sockfd, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(socket_import_fd) {
+	zend_long fd = -1;
+	php_socket *sock;
+	
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_LONG(fd)
+	ZEND_PARSE_PARAMETERS_END();
+	
+	if(fd <= 0) RETURN_FALSE;
+	
+	sock = socket_import_file_descriptor(fd);
+	if(sock) {
+		RETURN_RES(zend_register_resource(sock, php_sockets_le_socket()));
+	} else RETURN_FALSE;
+}
+
+// ===========================================================================================================
+
 static const zend_function_entry ext_functions[] = {
 	ZEND_FE(create_task, arginfo_create_task)
 	ZEND_FE(task_join, arginfo_task_join)
@@ -1601,6 +1698,9 @@ static const zend_function_entry ext_functions[] = {
 	PHP_FE(share_var_clean_ex, arginfo_share_var_clean_ex)
 	PHP_FE(share_var_count, arginfo_share_var_count)
 	PHP_FE(share_var_destory, arginfo_share_var_destory)
+	
+	PHP_FE(socket_export_fd, arginfo_socket_export_fd)
+	PHP_FE(socket_import_fd, arginfo_socket_import_fd)
 	
 	{NULL, NULL, NULL}
 };

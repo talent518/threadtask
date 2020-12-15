@@ -45,6 +45,11 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
   * $expire: int 过期时间戳，必须大于0
 * 统计变量(返回：大于0为数组元素数，小于0为字符长度，true为对象，未找到为null，否则为false): share_var_count([$key1,...])
 * 回收共享变量(只能在主线程中使用): share_var_destory()
+* 导出socket文件描述符为整型: socket_export_fd(resource $socket, bool $is_close = false)
+  * $socket: resouce socket_create或socket_create_listen返回的资源类型值
+  * $is_close: bool 为true时，不自动关闭$socket文件描述符，使用socket_close($socket)也一样
+* 从整型导入socket资源类型值: socket_import_fd(int $fd)
+  * $fd: int 来自socket_export_fd的返回的整型值
 
 ### 常量
 * THREAD_TASK_NAME: string 任务名
@@ -54,8 +59,10 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
 ### 使用示例
 * 简单任务控制: ./threadtask init.php
 * 等待任务完成: ./threadtask sem.php
-* 共享变量: ./threadtask var.php
+* 共享变量: ./threadtask var.php [threads [seconds [type]]]
 * ini配置加载: ./threadtask ini.php demo.ini
   * SIGUSR1: 重启进程(restart)
   * SIGUSR2: 重载配置(reload)
+* 过期共享变量: ./threadtask expire.php
+* TCP服务: ./threadtask socket.php
 
