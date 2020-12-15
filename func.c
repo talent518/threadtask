@@ -396,7 +396,7 @@ static PHP_FUNCTION(create_task) {
 		Z_PARAM_OPTIONAL
 		Z_PARAM_STRING(logfile, logfile_len)
 		Z_PARAM_STRING(logmode, logmode_len)
-		Z_PARAM_ZVAL_DEREF(res)
+		Z_PARAM_ZVAL_EX2(res, 0, 1, 0)
 	ZEND_PARSE_PARAMETERS_END();
 
 	if(access(filename, F_OK|R_OK) != 0) {
@@ -1583,6 +1583,7 @@ static PHP_FUNCTION(share_var_destory)
 
 // ===========================================================================================================
 
+#if PHP_VERSION_ID < 80000
 php_socket *socket_import_file_descriptor(PHP_SOCKET socket) {
 #ifdef SO_DOMAIN
 	int						type;
@@ -1626,9 +1627,11 @@ error:
 	efree(retsock);
 	return NULL;
 }
+#endif
 
+#if PHP_VERSION_ID < 80000
 ZEND_BEGIN_ARG_INFO_EX(arginfo_socket_export_fd, 0, 0, 1)
-ZEND_ARG_TYPE_INFO(0, Socket, IS_RESOURCE, 0)
+ZEND_ARG_TYPE_INFO(0, socket, IS_RESOURCE, 0)
 ZEND_ARG_TYPE_INFO(0, is_close, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
 
@@ -1653,6 +1656,31 @@ static PHP_FUNCTION(socket_export_fd) {
 		sock->bsd_socket = -1;
 	}
 }
+#else
+ZEND_BEGIN_ARG_INFO_EX(arginfo_socket_export_fd, 0, 0, 1)
+ZEND_ARG_OBJ_INFO(0, socket, Socket, 0)
+ZEND_ARG_TYPE_INFO(0, is_close, _IS_BOOL, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(socket_export_fd) {
+	zval *zsocket;
+	php_socket *socket;
+	zend_bool is_close = 0;
+	
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "O|b", &zsocket, socket_ce, &is_close) == FAILURE) {
+		RETURN_THROWS();
+	}
+
+	socket = Z_SOCKET_P(zsocket);
+	ENSURE_SOCKET_VALID(socket);
+	
+	RETVAL_LONG(socket->bsd_socket);
+	
+	if(is_close) {
+		socket->bsd_socket = -1;
+	}
+}
+#endif
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_socket_import_fd, 0, 0, 1)
 ZEND_ARG_TYPE_INFO(0, sockfd, IS_LONG, 0)
@@ -1667,11 +1695,20 @@ static PHP_FUNCTION(socket_import_fd) {
 	ZEND_PARSE_PARAMETERS_END();
 	
 	if(fd <= 0) RETURN_FALSE;
-	
+
+#if PHP_VERSION_ID >= 80000	
+	object_init_ex(return_value, socket_ce);
+	sock = Z_SOCKET_P(return_value);
+	if (!socket_import_file_descriptor(fd, sock)) {
+		zval_ptr_dtor(return_value);
+		RETURN_FALSE;
+	}
+#else
 	sock = socket_import_file_descriptor(fd);
 	if(sock) {
 		RETURN_RES(zend_register_resource(sock, php_sockets_le_socket()));
 	} else RETURN_FALSE;
+#endif
 }
 
 // ===========================================================================================================
