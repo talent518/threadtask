@@ -1,22 +1,21 @@
 <?php
 $running = true;
 $exitSig = 0;
-$isThread = (count($_SERVER['argv']) === 3 && $_SERVER['argv'][1] === 'thread');
 
 function signal($sig) {
 	global $running, $exitSig, $isThread;
 	if($isThread) echo "sig = $sig\n"; else echo "init sig = $sig\n";
 	$running = false;
 	$exitSig = $sig;
-	task_set_run(false);
+	defined('THREAD_TASK_NAME') or task_set_run(false);
 }
 
 pcntl_async_signals(true);
 pcntl_signal(SIGTERM, 'signal', false);
 pcntl_signal(SIGINT, 'signal', false);
 
-if($isThread) {
-	switch((int) $_SERVER['argv'][2]) {
+if(defined('THREAD_TASK_NAME')) {
+	switch((int) $_SERVER['argv'][1]) {
 		case 1: // put = get+1
 			while($running) share_var_put(THREAD_TASK_NAME, share_var_get(THREAD_TASK_NAME) + 1);
 			break;
@@ -68,7 +67,7 @@ if($isThread) {
 	exit;
 }
 
-echo "usage: {$_SERVER['_']} {$_SERVER['argv'][0]} [threads [seconds [type]]]\n";
+// echo "usage: {$_SERVER['_']} {$_SERVER['argv'][0]} [threads [seconds [type]]]\n";
 
 define('TYPE', (int) ($_SERVER['argv'][3]??0));
 
@@ -79,7 +78,7 @@ $time = microtime(true);
 share_var_init();
 
 $n = ($_SERVER['argv'][1]??4);
-for($i=0; $i<$n; $i++) create_task('var' . $i, __FILE__, ['thread', TYPE]);
+for($i=0; $i<$n; $i++) create_task('var' . $i, __FILE__, [TYPE]);
 
 sleep($_SERVER['argv'][2]??10);
 
