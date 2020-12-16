@@ -21,7 +21,7 @@ if(defined('THREAD_TASK_NAME')) {
 		$flag = (bool) $_SERVER['argv'][2];
 		if(!$flag) $wfd = socket_import_fd((int) $_SERVER['argv'][3]);
 		
-		while(($fd = @socket_accept($sock)) !== false) {
+		while($running && ($fd = @socket_accept($sock)) !== false) {
 			$i = share_var_inc('conns', 1);
 			$fd = socket_export_fd($fd, true);
 			share_var_set('accepts', $i, $fd);
