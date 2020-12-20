@@ -2,7 +2,7 @@
 $running = true;
 $exitSig = 0;
 function signal($sig) {
-	global $running;
+	global $running, $exitSig;
 
 	$exitSig = $sig;
 	$running = false;
@@ -12,6 +12,8 @@ function signal($sig) {
 pcntl_async_signals(true);
 pcntl_signal(SIGTERM, 'signal', false);
 pcntl_signal(SIGINT, 'signal', false);
+pcntl_signal(SIGUSR1, 'signal', false);
+pcntl_signal(SIGUSR2, 'signal', false);
 
 if(defined('THREAD_TASK_NAME')) {
 	// echo THREAD_TASK_NAME . PHP_EOL;

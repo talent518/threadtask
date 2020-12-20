@@ -6,6 +6,7 @@
 #include <semaphore.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/prctl.h>
 #include <signal.h>
 #include <limits.h>
 #include <time.h>
@@ -227,7 +228,9 @@ void *thread_task(task_t *task) {
 
 newtask:
 	dprintf("[%s] newtask\n", task->name);
-	
+
+    prctl(PR_SET_NAME, (unsigned long) task->name);
+
 	if(task->logfile && task->logmode) {
 		pthread_setspecific(pkey, task);
 	} else {
