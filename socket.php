@@ -44,6 +44,7 @@ if(defined('THREAD_TASK_NAME')) {
 
 			$str = THREAD_TASK_NAME . " $fd\n";
 			$fd = socket_import_fd($fd);
+            @socket_set_option($fd, SOL_SOCKET, SO_LINGER, ['l_onoff'=>1, 'l_linger'=>0]) or strerror('socket_set_option', false);
 			@socket_write($fd, $str) > 0 or strerror('socket_write', false);
 			@socket_read($fd, 1);
 			//@socket_shutdown($fd) or strerror('socket_shutdown', false);
@@ -60,6 +61,7 @@ if(defined('THREAD_TASK_NAME')) {
 		
 		$str = THREAD_TASK_NAME . " $fd\n";
 		$fd = socket_import_fd($fd);
+        @socket_set_option($fd, SOL_SOCKET, SO_LINGER, ['l_onoff'=>1, 'l_linger'=>0]) or strerror('socket_set_option', false);
 		@socket_write($fd, $str) > 0 or strerror('socket_write', false);
 		@socket_read($fd, 1);
 		@socket_close($fd);
@@ -78,7 +80,6 @@ if(defined('THREAD_TASK_NAME')) {
 	}
 
 	($sock = @socket_create(AF_INET, SOCK_STREAM, SOL_TCP)) or strerror('socket_create');
-	@socket_set_option($sock, SOL_SOCKET, SO_REUSEADDR, 1) or strerror('socket_set_option');
 	@socket_bind($sock, $host, (int)$port) or strerror('socket_bind');
 	@socket_listen($sock, 128) or strerror('socket_listen');
 	
