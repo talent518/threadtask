@@ -23,6 +23,7 @@ if(defined('THREAD_TASK_NAME')) {
 			//strerror('socket_connect', false);
 			continue;
 		}
+		@socket_set_option($fd, SOL_SOCKET, SO_LINGER, ['l_onoff'=>1, 'l_linger'=>1]);
 		if(!@socket_connect($fd, $host, $port)) {
 			share_var_inc('errs', 1);
 			//strerror('socket_connect', false);
