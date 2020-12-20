@@ -1,15 +1,16 @@
 CC := gcc
 PHPDIR ?= /opt/phpts
+PHPSO ?= php7
 PHPINC := $(PHPDIR)/include/php
 CFLAGS := -O2 -I$(PHPINC) -I$(PHPINC)/ext -I$(PHPINC)/main -I$(PHPINC)/sapi -I$(PHPINC)/TSRM -I$(PHPINC)/Zend $(CFLAGS)
-LDFLAGS := -L$(PHPDIR)/lib -Wl,-rpath,$(PHPDIR)/lib -lphp7 -pthread $(LDFLAGS)
+LDFLAGS := -L$(PHPDIR)/lib -Wl,-rpath,$(PHPDIR)/lib -l$(PHPSO) -pthread $(LDFLAGS)
 
 all: $(PHPINC)
 $(PHPINC):
 	$(error The $@ is not directory. Please usage "make PHPDIR=<dir>" by php dir, for example: /opt/phpts)
 
-all: $(PHPDIR)/lib/libphp7.so
-$(PHPDIR)/lib/libphp7.so:
+all: $(PHPDIR)/lib/lib$(PHPSO).so
+$(PHPDIR)/lib/lib$(PHPSO).so:
 	$(error The $@ is not directory. Please usage "make PHPDIR=<dir>" by php dir, for example: /opt/phpts)
 
 all: threadtask

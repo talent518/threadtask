@@ -727,7 +727,7 @@ ZEND_END_ARG_INFO()
 	do { \
 		php_unserialize_data_t var_hash; \
 		char *__buf = s; \
-		const unsigned char *__p = __buf; \
+		const unsigned char *__p = (const unsigned char *) __buf; \
 		size_t __buflen = l; \
 		PHP_VAR_UNSERIALIZE_INIT(var_hash); \
 		zval *retval = var_tmp_var(&var_hash); \
