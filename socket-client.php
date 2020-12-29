@@ -26,6 +26,7 @@ if(defined('THREAD_TASK_NAME')) {
 			continue;
 		}
 		@socket_set_option($fd, SOL_SOCKET, SO_LINGER, ['l_onoff'=>1, 'l_linger'=>1]);
+		@socket_set_option($fd, SOL_SOCKET, SO_REUSEADDR, 1) or strerror('socket_set_option', false);
 		if(!@socket_connect($fd, $host, $port)) {
 			share_var_inc('errs', 1);
 			//strerror('socket_connect', false);
@@ -36,7 +37,7 @@ if(defined('THREAD_TASK_NAME')) {
 			share_var_inc('conns', 1);
 			//echo $str;
 			@socket_write($fd, '1');
-		}
+		} else share_var_inc('errs', 1);
 		@socket_close($fd);
 	}
 } else {
