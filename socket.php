@@ -6,7 +6,13 @@ function signal($sig) {
 
 	$exitSig = $sig;
 	$running = false;
-	defined('THREAD_TASK_NAME') or task_set_run(false);
+	
+	if(defined('THREAD_TASK_NAME')) {
+		share_var_set(THREAD_TASK_NAME, debug_backtrace());
+	} else {
+		//task_set_run(false);
+		share_var_set('main', debug_backtrace());
+	}
 }
 
 pcntl_async_signals(true);
@@ -38,7 +44,11 @@ if(defined('THREAD_TASK_NAME')) {
 	} elseif(empty($_SERVER['argv'][1])) {
 		$rfd = socket_import_fd((int) $_SERVER['argv'][2]);
 		while($running) {
-			if(($n = @socket_read($rfd, 8)) === false || strlen($n) !== 8) continue;
+			if(($n = @socket_read($rfd, 8)) === false) continue;
+			if(strlen($n) !== 8) {
+				printf("ERR: %d\n", strlen($n));
+				continue;
+			}
 			
 			$i = unpack('q', $n)[1];
 			
@@ -48,7 +58,7 @@ if(defined('THREAD_TASK_NAME')) {
 			$fd = socket_import_fd($fd);
             @socket_set_option($fd, SOL_SOCKET, SO_LINGER, ['l_onoff'=>1, 'l_linger'=>0]) or strerror('socket_set_option', false);
 			@socket_write($fd, $str) > 0 or strerror('socket_write', false);
-			@socket_read($fd, 1);
+			@socket_read($fd, 1) !== false or strerror('socket_read', false);
 			//@socket_shutdown($fd) or strerror('socket_shutdown', false);
 			@socket_close($fd);
 		}
@@ -65,7 +75,7 @@ if(defined('THREAD_TASK_NAME')) {
 		$fd = socket_import_fd($fd);
         @socket_set_option($fd, SOL_SOCKET, SO_LINGER, ['l_onoff'=>1, 'l_linger'=>0]) or strerror('socket_set_option', false);
 		@socket_write($fd, $str) > 0 or strerror('socket_write', false);
-		@socket_read($fd, 1);
+		@socket_read($fd, 1) !== false or strerror('socket_read', false);
 		@socket_close($fd);
 	}
 } else {
@@ -82,6 +92,7 @@ if(defined('THREAD_TASK_NAME')) {
 	}
 
 	($sock = @socket_create(AF_INET, SOCK_STREAM, SOL_TCP)) or strerror('socket_create');
+	@socket_set_option($sock, SOL_SOCKET, SO_REUSEADDR, 1) or strerror('socket_set_option', false);
 	@socket_bind($sock, $host, (int)$port) or strerror('socket_bind');
 	@socket_listen($sock, 128) or strerror('socket_listen');
 	
@@ -107,17 +118,20 @@ if(defined('THREAD_TASK_NAME')) {
 	
 	task_wait($exitSig?:SIGINT);
 	
-	@socket_shutdown($sock) or strerror('socket_shutdown');
-	@socket_close($sock);
-	
 	$accepts = share_var_get('accepts');
 	
 	foreach($accepts as $i=>$fd) {
-		echo "unread: $i=>$fd\n";
+		echo $str = "unread: $i=>$fd\n";
 		$fd = socket_import_fd($fd);
-		@socket_shutdown($fd) or strerror('socket_shutdown', false);
+		@socket_set_option($fd, SOL_SOCKET, SO_LINGER, ['l_onoff'=>1, 'l_linger'=>0]) or strerror('socket_set_option', false);
+		@socket_write($fd, $str) > 0 or strerror('socket_write', false);
+		@socket_read($fd, 1) !== false or strerror('socket_read', false);
+		//@socket_shutdown($fd) or strerror('socket_shutdown', false);
 		@socket_close($fd);
 	}
+	
+	@socket_shutdown($sock) or strerror('socket_shutdown');
+	@socket_close($sock);
 	
 	if(!$flag) {
 		foreach($pairs as $fd) {
@@ -126,14 +140,22 @@ if(defined('THREAD_TASK_NAME')) {
 		}
 	}
 	
+	// echo json_encode(share_var_get(), JSON_PRETTY_PRINT);
+	
 	share_var_destory();
 	
 	echo "Stoped\n";
 }
-	
+
 function strerror($msg, $isExit = true) {
 	$err = socket_last_error();
-	printf("[%s] %s(%d): %s\n", defined('THREAD_TASK_NAME') ? THREAD_TASK_NAME : 'main', $msg, $err, socket_strerror($err));
+	if($err === SOCKET_EINTR) return;
+	
+	ob_start();
+	ob_implicit_flush(false);
+	debug_print_backtrace();
+	$trace = ob_get_clean();
+	printf("[%s] %s(%d): %s\n%s", defined('THREAD_TASK_NAME') ? THREAD_TASK_NAME : 'main', $msg, $err, socket_strerror($err), $trace);
 
 	if($isExit) exit; else return true;
 }
