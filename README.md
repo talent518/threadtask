@@ -66,4 +66,5 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
   * SIGUSR2: 重载配置(reload)
 * 过期共享变量: ./threadtask expire.php
 * TCP服务: ./threadtask socket.php
+* HTTP服务: ./threadtask http-server.php
 
