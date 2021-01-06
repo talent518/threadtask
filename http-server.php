@@ -62,29 +62,42 @@ if(defined('THREAD_TASK_NAME')) {
 
 			$fd = socket_import_fd($fd);
 
+			$t = microtime(true);
 			do {
 				$request = new HttpRequest($fd);
 				while(($ret = $request->read()) === false);
-				
+				if(!$ret && $request->readlen === 0) break;
+
 				// var_dump($request, $ret);
-				
+
+				if($request->isKeepAlive && microtime(true) - $t >= 10) {
+					$request->isKeepAlive = false;
+				}
+
 				if($ret) {
 					$response = new HttpResponse($fd, $request->protocol);
 					$response->setContentType('text/plain');
 					if($request->isKeepAlive) {
 						$response->headers['Connection'] = 'keep-alive';
+					} else {
+						$response->headers['Connection'] = 'close';
 					}
-					$response->end('OK');
-					share_var_inc('success', 1);
+					if($response->end('OK')) {
+						share_var_inc('success', 1);
+					} else {
+						share_var_inc('error', 1);
+						break;
+					}
 				} else {
 					if($ret === 0) {
-						$response = new HttpResponse($fd, $request->protocol ?? 'HTTP/1.0', 400, 'Bad Request');
-						$response->end('<h1>Bad Request</h1>');
+						$response = new HttpResponse($fd, $request->protocol ?: 'HTTP/1.1', 400, 'Bad Request');
+						$response->setContentType('text/plain');
+						$response->headers['Connection'] = 'close';
+						$response->end('Bad Request');
 					}
 					share_var_inc('error', 1);
-					break;
 				}
-			} while($request->isKeepAlive);
+			} while($ret && $request->isKeepAlive);
 
 			//@socket_shutdown($fd) or strerror('socket_shutdown', false);
 			@socket_close($fd);
@@ -99,30 +112,43 @@ if(defined('THREAD_TASK_NAME')) {
 		share_var_del('accepts', $i);
 
 		$fd = socket_import_fd($fd);
-		
+
+		$t = microtime(true);
 		do {
 			$request = new HttpRequest($fd);
 			while(($ret = $request->read()) === false);
-			
+			if(!$ret && $request->readlen === 0) break;
+
 			// var_dump($request, $ret);
-			
+
+			if($request->isKeepAlive && microtime(true) - $t >= 10) {
+				$request->isKeepAlive = false;
+			}
+
 			if($ret) {
 				$response = new HttpResponse($fd, $request->protocol);
 				$response->setContentType('text/plain');
 				if($request->isKeepAlive) {
-					$response->headers['Connection'] = 'keep-alive';
+					$response->headers['Connection'] = ($request->headers['Connection'] ?? 'Keep-Alive');
+				} else {
+					$response->headers['Connection'] = 'close';
 				}
-				$response->end('OK');
-				share_var_inc('success', 1);
+				if($response->end('OK')) {
+					share_var_inc('success', 1);
+				} else {
+					share_var_inc('error', 1);
+					break;
+				}
 			} else {
-				if($ret === 0) {
-					$response = new HttpResponse($fd, $request->protocol ?? 'HTTP/1.0', 400, 'Bad Request');
-					$response->end('<h1>Bad Request</h1>');
+				if($ret === 0 && $request->protocol) {
+					$response = new HttpResponse($fd, $request->protocol, 400, 'Bad Request');
+					$response->setContentType('text/plain');
+					$response->headers['Connection'] = 'close';
+					$response->end('Bad Request');
 				}
 				share_var_inc('error', 1);
-				break;
 			}
-		} while($request->isKeepAlive);
+		} while($ret && $request->isKeepAlive);
 
 		// @socket_read($fd, 1);
 
@@ -154,7 +180,7 @@ if(defined('THREAD_TASK_NAME')) {
 	share_var_init(3);
 	if(!$flag) {
 		share_var_set('accepts', []);
-		for($i=0; $i<56; $i++) create_task('read' . $i, __FILE__, [0,$rfd]);
+		for($i=0; $i<100; $i++) create_task('read' . $i, __FILE__, [0,$rfd]);
 	}
 	for($i=0; $i<8; $i++) create_task('accept' . $i, __FILE__, [$fd,$flag,$wfd]);
 	$n = $ns = $ne = 0;
@@ -220,6 +246,8 @@ function strerror($msg, $isExit = true) {
 }
 
 class HttpRequest {
+	public int $readlen = 0;
+
 	public ?string $head = null;
 	
 	public ?string $method = null;
@@ -284,12 +312,16 @@ class HttpRequest {
 		
 		$n = @socket_recv($this->fd, $buf, 16384, 0);
 		if($n === false) {
-			strerror('socket_recv', false);
+			if($this->readlen) strerror('socket_recv', false);
 			return null;
 		}
 		if($n <= 0) {
 			return null;
 		}
+		
+		$this->readlen += $n;
+		
+		// echo $buf;
 
 		if($this->buf !== null) {
 			$n += strlen($this->buf);
@@ -331,7 +363,7 @@ class HttpRequest {
 						if($this->bodylen < 0) $this->bodylen = 0;
 						$this->mode = ($this->bodylen ? self::MODE_BODY : self::MODE_END);
 						
-						$this->isKeepAlive = (isset($this->headers['Connection']) && $this->headers['Connection'] === 'keep-alive');
+						$this->isKeepAlive = ((isset($this->headers['Connection']) && !strcasecmp($this->headers['Connection'], 'keep-alive')) || (!isset($this->headers['Connection']) && !strcasecmp($this->protocol, 'HTTP/1.1')));
 
 						$args = $this->get_head_args($this->headers['Content-Type'] ?? '');
 						$this->bodytype = $args[0];
@@ -345,7 +377,7 @@ class HttpRequest {
 							case 'multipart/form-data':
 								$this->bodymode = self::BODY_MODE_FORM_DATA;
 								if(isset($this->headers['Expect']) && $this->headers['Expect'] === '100-continue') {
-									@socket_write($this->fd, "{$this->protocol} 100 Continue\r\n\r\n");
+									if(!$this->send("{$this->protocol} 100 Continue\r\n\r\n")) return null;
 								}
 								$this->boundary = $this->bodyargs['boundary'];
 								$this->boundaryBgn = '--' . $this->boundary;
@@ -459,7 +491,7 @@ class HttpRequest {
 						}
 
 						if($this->bodyoff >= $this->bodylen && $this->mode !== self::MODE_END) {
-							var_dump('BODYOFF', $buf);
+							echo "BODYOFF: $buf\n";
 							return 0;
 						}
 					} else {
@@ -508,6 +540,22 @@ class HttpRequest {
 		// var_dump($ret, $head);
 		return $ret;
 	}
+	
+	private function send(string $data) {
+		loop:
+		$n = strlen($data);
+		if($n === 0) return true;
+		$ret = @socket_send($this->fd, $data, $n, 0);
+		if($ret > 0) {
+			if($ret < $n) {
+				$data = substr($data, $ret);
+				goto loop;
+			} else return true;
+		} else {
+			strerror('socket_send', false);
+			return false;
+		}
+	}
 }
 
 class HttpResponse {
@@ -530,7 +578,8 @@ class HttpResponse {
 	}
 	
 	protected function headSend(int $bodyLen = 0) {
-		if($this->isHeadSent) return;
+		if($this->isHeadSent) return true;
+		$this->isHeadSent = true;
 		
 		if($bodyLen > 0) {
 			$this->headers['Content-Length'] = $bodyLen;
@@ -554,9 +603,7 @@ class HttpResponse {
 		echo "\r\n";
 		$buf = ob_get_clean();
 		
-		@socket_write($this->fd, $buf) or strerror('socket_write', false);
-		
-		$this->isHeadSent = true;
+		return $this->send($buf);
 	}
 	
 	public function setContentType(string $type) {
@@ -564,24 +611,51 @@ class HttpResponse {
 	}
 	
 	public function write(string $data) {
-		$this->headSend();
+		if(!$this->headSend()) return false;
+		
+		$n = strlen($data);
+		if($n === 0) return true;
+		
+		if($this->isChunked) {
+			$data = sprintf("%x\r\n%s", $n, $data);
+			$n = strlen($data);
+		}
+		
+		return $this->send($data);
 	}
 	
 	public function end(?string $data = null) {
-		$this->headSend(strlen($data));
+		if($this->isEnd) return true;
+		$this->isEnd = true;
 		
-		$isData = ($data !== '' && $data !== null);
+		$n = strlen($data);
+		if(!$this->headSend($n)) return false;
+		
 		if($this->isChunked) {
-			if($isData) {
-				@socket_write($this->fd, sprintf("%x\r\n%s0\r\n", strlen($data), $data)) > 0 or strerror('socket_write', false);
+			if($n) {
+				$data = sprintf("%x\r\n%s0\r\n", $n, $data);
 			} else {
-				@socket_write($this->fd, "0\r\n") > 0 or strerror('socket_write', false);
+				$data = "0\r\n";
 			}
-		} elseif($isData) {
-			@socket_write($this->fd, $data) > 0 or strerror('socket_write', false);
 		}
 		
-		$this->isEnd = true;
+		return $this->send($data);
+	}
+	
+	private function send(string $data) {
+		loop:
+		$n = strlen($data);
+		if($n === 0) return true;
+		$ret = @socket_send($this->fd, $data, $n, 0);
+		if($ret > 0) {
+			if($ret < $n) {
+				$data = substr($data, $ret);
+				goto loop;
+			} else return true;
+		} else {
+			strerror('socket_send', false);
+			return false;
+		}
 	}
 }
 
