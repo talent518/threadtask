@@ -26,6 +26,8 @@ pcntl_signal(SIGINT, 'signal', false);
 pcntl_signal(SIGUSR1, 'signal', false);
 pcntl_signal(SIGUSR2, 'signal', false);
 
+define('IS_TO_FILE', (bool) getenv('IS_TO_FILE'));
+
 if(defined('THREAD_TASK_NAME')) {
 	// echo THREAD_TASK_NAME . PHP_EOL;
 
@@ -82,7 +84,7 @@ if(defined('THREAD_TASK_NAME')) {
 					} else {
 						$response->headers['Connection'] = 'close';
 					}
-					if($response->end('OK')) {
+					if($response->end(var_export($request, true))) {
 						share_var_inc('success', 1);
 					} else {
 						share_var_inc('error', 1);
@@ -133,7 +135,7 @@ if(defined('THREAD_TASK_NAME')) {
 				} else {
 					$response->headers['Connection'] = 'close';
 				}
-				if($response->end('OK')) {
+				if($response->end(var_export($request, true))) {
 					share_var_inc('success', 1);
 				} else {
 					share_var_inc('error', 1);
@@ -246,6 +248,8 @@ function strerror($msg, $isExit = true) {
 }
 
 class HttpRequest {
+	public ?string $clientAddr = null;
+	public int $clientPort = 0;
 	public int $readlen = 0;
 
 	public ?string $head = null;
@@ -273,7 +277,7 @@ class HttpRequest {
 	public int $bodylen = 0;
 	public int $bodyoff = 0;
 	
-	private bool $isToFile = false;
+	private bool $isToFile = IS_TO_FILE;
 	private $fp = null;
 	private int $formmode = self::FORM_MODE_BOUNDARY;
 	private ?string $boundary = null;
@@ -298,6 +302,7 @@ class HttpRequest {
 
 	public function __construct($fd) {
 		$this->fd = $fd;
+		@socket_getpeername($fd, $this->clientAddr, $this->clientPort);
 	}
 	
 	public function __destruct() {
