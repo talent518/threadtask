@@ -51,6 +51,10 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
   * $is_close: bool 为true时，不自动关闭$socket文件描述符，使用socket_close($socket)也一样
 * 从整型导入socket资源类型值: socket_import_fd(int $fd)
   * $fd: int 来自socket_export_fd的返回的整型值
+* 接受socket连接: socket_accept_ex(int $sockfd, string &$addr, int &$port)
+  * $sockfd: int 来自socket_export_fd的返回的整型值
+  * $addr: string 客户端IP地址
+  * $port: int 客户端端口号
 
 ### 常量
 * THREAD_TASK_NAME: string 任务名
