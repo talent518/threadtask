@@ -8,15 +8,15 @@ function signal($sig) {
 	$running = false;
 	
 	if(defined('THREAD_TASK_NAME')) {
-		share_var_set(THREAD_TASK_NAME, debug_backtrace());
+		// share_var_set(THREAD_TASK_NAME, debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS));
 		/*ob_start();
 		ob_implicit_flush(false);
 		echo THREAD_TASK_NAME, PHP_EOL;
-		debug_print_backtrace();
+		debug_print_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
 		echo ob_get_clean();*/
 	} else {
-		//task_set_run(false);
-		share_var_set('main', debug_backtrace());
+		task_set_run(false);
+		// share_var_set('main', debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS));
 	}
 }
 
@@ -26,26 +26,29 @@ pcntl_signal(SIGINT, 'signal', false);
 pcntl_signal(SIGUSR1, 'signal', false);
 pcntl_signal(SIGUSR2, 'signal', false);
 
-define('IS_TO_FILE', (bool) getenv('IS_TO_FILE'));
+define('IS_TO_FILE', ($env = getenv('IS_TO_FILE')) === false ? true : !empty($env));
 
 if(defined('THREAD_TASK_NAME')) {
 	// echo THREAD_TASK_NAME . PHP_EOL;
 
 	if(strncmp(THREAD_TASK_NAME, 'accept', 6) == 0) {
-		$sock = socket_import_fd((int) $_SERVER['argv'][1]);
+		//$sock = socket_import_fd((int) $_SERVER['argv'][1]);
+		$sock = (int) $_SERVER['argv'][1];
 		$flag = (bool) $_SERVER['argv'][2];
 		if(!$flag) $wfd = socket_import_fd((int) $_SERVER['argv'][3]);
 
-		while($running && ($fd = @socket_accept($sock)) !== false) {
+		while($running && ($fd = @socket_accept_ex($sock, $addr, $port)) !== false) {
 			@socket_set_option($fd, SOL_SOCKET, SO_LINGER, ['l_onoff'=>1, 'l_linger'=>1]) or strerror('socket_set_option', false);
 			$i = share_var_inc('conns', 1);
 			$fd = socket_export_fd($fd, true);
-			share_var_set('accepts', $i, $fd);
-			if($flag) create_task('read' . $i, __FILE__, [$fd,$i]);
-			else socket_write($wfd, pack('q', $i));
+			share_var_set('accepts', $i, [$fd,$addr,$port]);
+			if($flag) create_task('read' . $i, __FILE__, [$fd,$i,$addr,$port]);
+			else {
+				socket_write($wfd, pack('q', $i));
+			}
 		}
 
-		socket_export_fd($sock, true); // skip close socket
+		//socket_export_fd($sock, true); // skip close socket
 		if(!$flag) socket_export_fd($wfd, true); // skip close socket
 
 		//echo THREAD_TASK_NAME . " Closed\n";
@@ -60,13 +63,15 @@ if(defined('THREAD_TASK_NAME')) {
 
 			$i = unpack('q', $n)[1];
 
-			$fd = share_var_get_and_del('accepts', $i);
+			list($fd, $addr, $port) = share_var_get_and_del('accepts', $i);
 
 			$fd = socket_import_fd($fd);
 
 			$t = microtime(true);
 			do {
 				$request = new HttpRequest($fd);
+				$request->clientAddr = $addr;
+				$request->clientPort = $port;
 				while(($ret = $request->read()) === false);
 				if(!$ret && $request->readlen === 0) break;
 
@@ -84,7 +89,8 @@ if(defined('THREAD_TASK_NAME')) {
 					} else {
 						$response->headers['Connection'] = 'close';
 					}
-					if($response->end(var_export($request, true))) {
+					$data = var_export($request, true); // json_encode($request, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+					if($response->end($data)) {
 						share_var_inc('success', 1);
 					} else {
 						share_var_inc('error', 1);
@@ -111,6 +117,8 @@ if(defined('THREAD_TASK_NAME')) {
 	} else {
 		$fd = (int) $_SERVER['argv'][1];
 		$i = (int) $_SERVER['argv'][2];
+		$addr = $_SERVER['argv'][3];
+		$port = $_SERVER['argv'][4];
 		share_var_del('accepts', $i);
 
 		$fd = socket_import_fd($fd);
@@ -118,6 +126,8 @@ if(defined('THREAD_TASK_NAME')) {
 		$t = microtime(true);
 		do {
 			$request = new HttpRequest($fd);
+			$request->clientAddr = $addr;
+			$request->clientPort = $port;
 			while(($ret = $request->read()) === false);
 			if(!$ret && $request->readlen === 0) break;
 
@@ -135,7 +145,8 @@ if(defined('THREAD_TASK_NAME')) {
 				} else {
 					$response->headers['Connection'] = 'close';
 				}
-				if($response->end(var_export($request, true))) {
+				$data = var_export($request, true); // json_encode($request, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+				if($response->end($data)) {
 					share_var_inc('success', 1);
 				} else {
 					share_var_inc('error', 1);
@@ -207,13 +218,11 @@ if(defined('THREAD_TASK_NAME')) {
 
 	$accepts = share_var_get('accepts') ?? [];
 
-	foreach($accepts as $i=>$fd) {
-		echo $str = "unread: $i=>$fd\n";
+	foreach($accepts as $i=>$_fd) {
+		list($fd, $addr, $port) = $_fd;
+		echo $str = "unread($addr:$port): $i=>$fd\n";
 		$fd = socket_import_fd($fd);
-		@socket_set_option($fd, SOL_SOCKET, SO_LINGER, ['l_onoff'=>1, 'l_linger'=>0]) or strerror('socket_set_option', false);
-		@socket_write($fd, $str) > 0 or strerror('socket_write', false);
-		@socket_read($fd, 1) !== false or strerror('socket_read', false);
-		//@socket_shutdown($fd) or strerror('socket_shutdown', false);
+		@socket_shutdown($fd) or strerror('socket_shutdown', false);
 		@socket_close($fd);
 	}
 
@@ -240,7 +249,7 @@ function strerror($msg, $isExit = true) {
 
 	ob_start();
 	ob_implicit_flush(false);
-	debug_print_backtrace();
+	debug_print_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
 	$trace = ob_get_clean();
 	printf("[%s] %s(%d): %s\n%s", defined('THREAD_TASK_NAME') ? THREAD_TASK_NAME : 'main', $msg, $err, socket_strerror($err), $trace);
 
@@ -302,7 +311,7 @@ class HttpRequest {
 
 	public function __construct($fd) {
 		$this->fd = $fd;
-		@socket_getpeername($fd, $this->clientAddr, $this->clientPort);
+		// @socket_getpeername($fd, $this->clientAddr, $this->clientPort);
 	}
 	
 	public function __destruct() {
@@ -658,7 +667,7 @@ class HttpResponse {
 				goto loop;
 			} else return true;
 		} else {
-			strerror('socket_send', false);
+			// strerror('socket_send', false);
 			return false;
 		}
 	}
