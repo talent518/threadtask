@@ -6,6 +6,10 @@
 #include <semaphore.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <sys/prctl.h>
 #include <signal.h>
 #include <limits.h>
@@ -430,6 +434,7 @@ static PHP_FUNCTION(create_task) {
 		task->sem = (sem_t*) malloc(sizeof(sem_t));
 		sem_init(task->sem, 0, 0);
 		
+		zval_ptr_dtor(res);
 		ZEND_REGISTER_RESOURCE(res, task->sem, le_threadtask_descriptor);
 
 		dprintf("RESOURCE %p register\n", task->sem);
@@ -1765,6 +1770,89 @@ static PHP_FUNCTION(socket_import_fd) {
 #endif
 }
 
+ZEND_BEGIN_ARG_INFO_EX(arginfo_socket_accept_ex, 0, 0, 3)
+ZEND_ARG_TYPE_INFO(0, sockfd, IS_LONG, 0)
+ZEND_ARG_INFO(1, addr)
+ZEND_ARG_INFO(1, port)
+ZEND_END_ARG_INFO()
+
+
+static PHP_FUNCTION(socket_accept_ex) {
+	zend_long sockfd = -1;
+	zval *addr, *port;
+	int fd;
+	php_socket *sock;
+	php_sockaddr_storage sa_storage;
+	socklen_t salen = sizeof(php_sockaddr_storage);
+	struct sockaddr         *sa;
+	struct sockaddr_in		*sin;
+#if HAVE_IPV6
+	struct sockaddr_in6		*sin6;
+	char					addr6[INET6_ADDRSTRLEN+1];
+#endif
+	struct sockaddr_un		*s_un;
+	char					*addr_string;
+
+	ZEND_PARSE_PARAMETERS_START(3, 3)
+		Z_PARAM_LONG(sockfd)
+		Z_PARAM_ZVAL(addr)
+		Z_PARAM_ZVAL(port)
+	ZEND_PARSE_PARAMETERS_END();
+	
+	sa = (struct sockaddr *) &sa_storage;
+	
+	fd = accept((int) sockfd, sa, &salen);
+	if(fd == -1) {
+		zval_ptr_dtor(addr);
+		zval_ptr_dtor(port);
+		RETURN_FALSE;
+	}
+	
+	switch (sa->sa_family) {
+#if HAVE_IPV6
+		case AF_INET6:
+			sin6 = (struct sockaddr_in6 *) sa;
+
+			inet_ntop(AF_INET6, &sin6->sin6_addr, addr6, INET6_ADDRSTRLEN);
+
+			ZEND_TRY_ASSIGN_REF_STRING(addr, addr6);
+			ZEND_TRY_ASSIGN_REF_LONG(port, htons(sin6->sin6_port));
+			break;
+#endif
+		case AF_INET:
+			sin = (struct sockaddr_in *) sa;
+			addr_string = inet_ntoa(sin->sin_addr);
+
+			ZEND_TRY_ASSIGN_REF_STRING(addr, addr_string);
+			ZEND_TRY_ASSIGN_REF_LONG(port, htons(sin->sin_port));
+			break;
+
+		case AF_UNIX:
+			s_un = (struct sockaddr_un *) sa;
+
+			ZEND_TRY_ASSIGN_REF_STRING(addr, s_un->sun_path);
+			ZEND_TRY_ASSIGN_REF_LONG(port, 0);
+			break;
+
+		default:
+			RETURN_FALSE;
+	}
+
+#if PHP_VERSION_ID >= 80000	
+	object_init_ex(return_value, socket_ce);
+	sock = Z_SOCKET_P(return_value);
+	if (!socket_import_file_descriptor(fd, sock)) {
+		zval_ptr_dtor(return_value);
+		RETURN_FALSE;
+	}
+#else
+	sock = socket_import_file_descriptor(fd);
+	if(sock) {
+		RETURN_RES(zend_register_resource(sock, php_sockets_le_socket()));
+	} else RETURN_FALSE;
+#endif
+}
+
 // ===========================================================================================================
 
 static const zend_function_entry ext_functions[] = {
@@ -1793,6 +1881,7 @@ static const zend_function_entry ext_functions[] = {
 	
 	PHP_FE(socket_export_fd, arginfo_socket_export_fd)
 	PHP_FE(socket_import_fd, arginfo_socket_import_fd)
+	PHP_FE(socket_accept_ex, arginfo_socket_accept_ex)
 	
 	{NULL, NULL, NULL}
 };
