@@ -58,7 +58,7 @@ if(defined('THREAD_TASK_NAME')) {
 			if(($n = @socket_read($rfd, 8)) === false) continue;
 			if(strlen($n) !== 8) {
 				printf("ERR: %d\n", strlen($n));
-				continue;
+				break;
 			}
 
 			$i = unpack('q', $n)[1];
@@ -69,9 +69,7 @@ if(defined('THREAD_TASK_NAME')) {
 
 			$t = microtime(true);
 			do {
-				$request = new HttpRequest($fd);
-				$request->clientAddr = $addr;
-				$request->clientPort = $port;
+				$request = new HttpRequest($fd, $addr, $port);
 				while(($ret = $request->read()) === false);
 				if(!$ret && $request->readlen === 0) break;
 
@@ -83,13 +81,16 @@ if(defined('THREAD_TASK_NAME')) {
 
 				if($ret) {
 					$response = new HttpResponse($fd, $request->protocol);
-					$response->setContentType('text/plain');
 					if($request->isKeepAlive) {
 						$response->headers['Connection'] = 'keep-alive';
 					} else {
 						$response->headers['Connection'] = 'close';
 					}
-					$data = var_export($request, true); // json_encode($request, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+					$data = onRequest($request, $response);
+					if($data === false) {
+						$response->setContentType('text/plain');
+						$data = var_export($request, true); // json_encode($request, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+					}
 					if($response->end($data)) {
 						share_var_inc('success', 1);
 					} else {
@@ -125,9 +126,7 @@ if(defined('THREAD_TASK_NAME')) {
 
 		$t = microtime(true);
 		do {
-			$request = new HttpRequest($fd);
-			$request->clientAddr = $addr;
-			$request->clientPort = $port;
+			$request = new HttpRequest($fd, $addr, $port);
 			while(($ret = $request->read()) === false);
 			if(!$ret && $request->readlen === 0) break;
 
@@ -139,13 +138,16 @@ if(defined('THREAD_TASK_NAME')) {
 
 			if($ret) {
 				$response = new HttpResponse($fd, $request->protocol);
-				$response->setContentType('text/plain');
 				if($request->isKeepAlive) {
 					$response->headers['Connection'] = ($request->headers['Connection'] ?? 'Keep-Alive');
 				} else {
 					$response->headers['Connection'] = 'close';
 				}
-				$data = var_export($request, true); // json_encode($request, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+				$data = onRequest($request, $response);
+				if($data === false) {
+					$response->setContentType('text/plain');
+					$data = var_export($request, true); // json_encode($request, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+				}
 				if($response->end($data)) {
 					share_var_inc('success', 1);
 				} else {
@@ -256,6 +258,72 @@ function strerror($msg, $isExit = true) {
 	if($isExit) exit; else return true;
 }
 
+function onRequest(HttpRequest $request, HttpResponse $response) {
+	$path = __DIR__ . $request->path;
+	
+	if(is_dir($path)) {
+		ob_start();
+		ob_implicit_flush(false);
+?><!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="origin" />
+    <meta http-equiv="Cache-Control" content="no-transform" />
+    <meta http-equiv="Cache-Control" content="no-siteapp" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <title><?=$request->path?></title>
+</head>
+<body>
+<table>
+	<thead>
+		<tr>
+			<th>Name</th>
+			<th>Size</th>
+		</tr>
+	</thead>
+	<tbody><?php
+	if($request->path !== '/'):
+		?><tr><td colspan="2"><a href="<?=dirname($request->path)?>">..</a></td></tr><?php
+	endif;
+	if(($dh = @opendir($path)) !== false):
+		while(($f=readdir($dh)) !== false):
+			if($f !== '.' && $f !== '..'):
+				$file = $path . '/' . $f;
+				?><tr><td><a href="<?=$f?><?php if(is_dir($file)):?>/<?php endif;?>"><?=$f?></a></td><td><?=filesize($file)?></td></tr><?php
+			endif;
+		endwhile;
+		closedir($dh);
+	endif;
+	?></tbody>
+</table>
+</body>
+</html>
+<?php
+		return ob_get_clean();
+	} elseif(is_file($path)) {
+		$response->setContentType(mime_content_type($path) ?: 'application/octet-stream');
+		$response->headSend(filesize($path));
+
+		if(($fp = @fopen($path, 'rb+')) !== false) {
+			while(!feof($fp)) {
+				if(($buf = fread($fp, 8192)) === false) {
+					break;
+				} else {
+					if(!$response->send($buf)) break;
+				}
+			}
+			fclose($fp);
+		}
+	} else {
+		$response->status = 404;
+		$response->statusText = 'Not Found';
+		
+		return '<h1>Not Found</h1>';
+	}
+}
+
 class HttpRequest {
 	public ?string $clientAddr = null;
 	public int $clientPort = 0;
@@ -309,9 +377,10 @@ class HttpRequest {
 	const FORM_MODE_HEAD = 2;
 	const FORM_MODE_VALUE = 3;
 
-	public function __construct($fd) {
+	public function __construct($fd, string $addr, int $port) {
 		$this->fd = $fd;
-		// @socket_getpeername($fd, $this->clientAddr, $this->clientPort);
+		$this->clientAddr = $addr;
+		$this->clientPort = $port;
 	}
 	
 	public function __destruct() {
@@ -591,7 +660,7 @@ class HttpResponse {
 		$this->statusText = $statusText;
 	}
 	
-	protected function headSend(int $bodyLen = 0) {
+	public function headSend(int $bodyLen = 0) {
 		if($this->isHeadSent) return true;
 		$this->isHeadSent = true;
 		
@@ -653,10 +722,10 @@ class HttpResponse {
 			}
 		}
 		
-		return $this->send($data);
+		return $data === null || $this->send($data);
 	}
 	
-	private function send(string $data) {
+	public function send(string $data) {
 		loop:
 		$n = strlen($data);
 		if($n === 0) return true;
