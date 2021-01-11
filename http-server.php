@@ -259,9 +259,52 @@ function strerror($msg, $isExit = true) {
 }
 
 function onRequest(HttpRequest $request, HttpResponse $response) {
+	if($request->path === '/request-info') return false;
+	
 	$path = __DIR__ . $request->path;
 	
 	if(is_dir($path)) {
+		$files = [];
+		if(($dh = @opendir($path)) !== false) {
+			while(($f=readdir($dh)) !== false) {
+				if($f === '.' || $f === '..') continue;
+				
+				$st = stat($path . '/' . $f);
+				$files[] = [
+					'name' => $f,
+					'url' => ($request->path === '/' ? '/' : $request->path . '/') . $f,
+					'size' => $st['size'],
+					'perms' => getperms($st['mode'], $type),
+					'type' => $type,
+					'atime' => $st['atime'],
+					'mtime' => $st['mtime'],
+					'ctime' => $st['ctime'],
+				];
+			}
+			closedir($dh);
+		}
+		
+		$key = ($request->get['key'] ?? 'name');
+		$sort = ($request->get['sort'] ?? 'asc');
+
+		if($files) {
+			if($key === 'url' || !isset($files[0][$key])) $key = 'name';
+			switch($key) {
+				case 'size':
+				case 'atime':
+				case 'mtime':
+				case 'ctime':
+					$call = function($a, $b) use($key) {return $a[$key] <=> $b[$key];};
+					break;
+				default:
+					$call = function($a, $b) use($key) {return strcmp($a[$key], $b[$key]);};
+					break;
+			}
+			
+			if($sort === 'asc') usort($files, $call);
+			else usort($files, function($a, $b) use($call) {return -$call($a, $b);});
+		}
+
 		ob_start();
 		ob_implicit_flush(false);
 ?><!DOCTYPE html>
@@ -274,28 +317,51 @@ function onRequest(HttpRequest $request, HttpResponse $response) {
     <meta http-equiv="Cache-Control" content="no-siteapp" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <title><?=$request->path?></title>
+    <style type="text/css">
+    body{margin:0;padding:5px;}
+    table{border:1px #ccc solid;border-width:1px 0 0 1px;border-spacing:0;margin:0 auto;}
+    th,td{border:1px #ccc solid;padding:5px;}
+    td{border-width:0 1px 1px 0;}
+    th{border-width:0 1px 2px 0;}
+    </style>
 </head>
 <body>
 <table>
 	<thead>
-		<tr>
-			<th>Name</th>
-			<th>Size</th>
-		</tr>
+		<tr><?php
+		$titles = [
+			'name' => 'Name',
+			'size' => 'Size',
+			'type' => 'Type',
+			'perms' => 'Perm',
+			'atime' => 'Time of last access',
+			'mtime' => 'Time of last modification',
+			'ctime' => 'Time of last modification',
+		];
+		foreach($titles as $k=>$t):
+			if($k === $key):
+				?><th><a href="?key=<?=$k?><?=($sort === 'asc' ? '&sort=desc' : null)?>"><?=$t?><?=($sort === 'asc' ? '↑' : '↓')?></a></th><?php
+			else:
+				?><th><a href="?key=<?=$k?>"><?=$t?></a></th><?php
+			endif;
+		endforeach;
+		?></tr>
 	</thead>
 	<tbody><?php
 	if($request->path !== '/'):
-		?><tr><td colspan="2"><a href="<?=dirname($request->path)?>">..</a></td></tr><?php
+		?><tr><td colspan="7"><a href="<?=dirname($request->path)?>">..</a></td></tr><?php
 	endif;
-	if(($dh = @opendir($path)) !== false):
-		while(($f=readdir($dh)) !== false):
-			if($f !== '.' && $f !== '..'):
-				$file = $path . '/' . $f;
-				?><tr><td><a href="<?=$f?><?php if(is_dir($file)):?>/<?php endif;?>"><?=$f?></a></td><td><?=filesize($file)?></td></tr><?php
-			endif;
-		endwhile;
-		closedir($dh);
-	endif;
+	foreach($files as $file):
+		?><tr>
+			<td><a href="<?=$file['url']?>"><?=$file['name']?></a></td>
+			<td><?=$file['size']?></td>
+			<td><?=$file['type']?></td>
+			<td><?=$file['perms']?></td>
+			<td><?=date('Y-m-d H:i:s', $file['atime'])?></td>
+			<td><?=date('Y-m-d H:i:s', $file['mtime'])?></td>
+			<td><?=date('Y-m-d H:i:s', $file['ctime'])?></td>
+		</tr><?php
+	endforeach;
 	?></tbody>
 </table>
 </body>
@@ -303,6 +369,9 @@ function onRequest(HttpRequest $request, HttpResponse $response) {
 <?php
 		return ob_get_clean();
 	} elseif(is_file($path)) {
+		if(isset($request->get['format']) && pathinfo($request->path, PATHINFO_EXTENSION) === 'php') {
+			return highlight_file($path, true);
+		}
 		$response->setContentType(mime_content_type($path) ?: 'application/octet-stream');
 		$response->headSend(filesize($path));
 
@@ -322,6 +391,64 @@ function onRequest(HttpRequest $request, HttpResponse $response) {
 		
 		return '<h1>Not Found</h1>';
 	}
+}
+
+function getperms(int $mode, ?string &$type = null) {
+	if (($mode & 0xC000) == 0xC000) {
+		// Socket
+		$info = 's';
+		$type = 'Socket';
+	} elseif (($mode & 0xA000) == 0xA000) {
+		// Symbolic Link
+		$info = 'l';
+		$type = 'Symbolic Link';
+	} elseif (($mode & 0x8000) == 0x8000) {
+		// Regular
+		$info = '-';
+		$type = 'Regular';
+	} elseif (($mode & 0x6000) == 0x6000) {
+		// Block special
+		$info = 'b';
+		$type = 'Block special';
+	} elseif (($mode & 0x4000) == 0x4000) {
+		// Directory
+		$info = 'd';
+		$type = 'Directory';
+	} elseif (($mode & 0x2000) == 0x2000) {
+		// Character special
+		$info = 'c';
+		$type = 'Character special';
+	} elseif (($mode & 0x1000) == 0x1000) {
+		// FIFO pipe
+		$info = 'p';
+		$type = 'FIFO pipe';
+	} else {
+		// Unknown
+		$info = 'u';
+		$type = 'Unknown';
+	}
+
+	// Owner
+	$info .= (($mode & 0x0100) ? 'r' : '-');
+	$info .= (($mode & 0x0080) ? 'w' : '-');
+	$info .= (($mode & 0x0040) ?
+		        (($mode & 0x0800) ? 's' : 'x' ) :
+		        (($mode & 0x0800) ? 'S' : '-'));
+
+	// Group
+	$info .= (($mode & 0x0020) ? 'r' : '-');
+	$info .= (($mode & 0x0010) ? 'w' : '-');
+	$info .= (($mode & 0x0008) ?
+		        (($mode & 0x0400) ? 's' : 'x' ) :
+		        (($mode & 0x0400) ? 'S' : '-'));
+
+	// World
+	$info .= (($mode & 0x0004) ? 'r' : '-');
+	$info .= (($mode & 0x0002) ? 'w' : '-');
+	$info .= (($mode & 0x0001) ?
+		        (($mode & 0x0200) ? 't' : 'x' ) :
+		        (($mode & 0x0200) ? 'T' : '-'));
+	return $info;
 }
 
 class HttpRequest {
@@ -426,6 +553,7 @@ class HttpRequest {
 						$uri = parse_url($this->uri);
 						if(isset($uri['path'])) {
 							$this->path = $uri['path'];
+							if(strpos($this->path, '%') !== false) $this->path = urldecode($this->path);
 						}
 						if(isset($uri['query'])) {
 							parse_str($uri['query'], $this->get);
@@ -567,7 +695,7 @@ class HttpRequest {
 										}
 										$i = $pos + 2;
 										$this->formmode = self::FORM_MODE_BOUNDARY;
-										$this->formheaders = [];
+										$this->formheaders = $this->formargs = [];
 									}
 									break;
 							}
