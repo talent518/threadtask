@@ -86,12 +86,7 @@ if(defined('THREAD_TASK_NAME')) {
 					} else {
 						$response->headers['Connection'] = 'close';
 					}
-					$data = onRequest($request, $response);
-					if($data === false) {
-						$response->setContentType('text/plain');
-						$data = var_export($request, true); // json_encode($request, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
-					}
-					if($response->end($data)) {
+					if($response->end(onRequest($request, $response))) {
 						share_var_inc('success', 1);
 					} else {
 						share_var_inc('error', 1);
@@ -143,12 +138,7 @@ if(defined('THREAD_TASK_NAME')) {
 				} else {
 					$response->headers['Connection'] = 'close';
 				}
-				$data = onRequest($request, $response);
-				if($data === false) {
-					$response->setContentType('text/plain');
-					$data = var_export($request, true); // json_encode($request, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
-				}
-				if($response->end($data)) {
+				if($response->end(onRequest($request, $response))) {
 					share_var_inc('success', 1);
 				} else {
 					share_var_inc('error', 1);
@@ -258,8 +248,29 @@ function strerror($msg, $isExit = true) {
 	if($isExit) exit; else return true;
 }
 
-function onRequest(HttpRequest $request, HttpResponse $response) {
-	if($request->path === '/request-info') return false;
+function onRequest(HttpRequest $request, HttpResponse $response): ?string {
+	switch($request->path) {
+		case '/request-info':
+			if(isset($request->get['json'])) {
+				$response->setContentType('application/json; charset=utf-8');
+				return json_encode($request, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+			} else {
+				$response->setContentType('text/plain');
+				return var_export($request, true);
+			}
+		case '/hello-json':
+			$response->setContentType('application/json');
+			return json_encode(['method'=>$request->method, 'message'=>'Hello threadtask!']);
+		case '/null':
+			unset($response->headers['Content-Type']);
+			return null;
+		case '/chunked':
+			$n = rand(5, 50);
+			for($i=0;$i<$n;$i++) $response->write("LINE: $i/$n\r\n");
+			return $n % 2 === 0 ? null : "END: $i/$n\r\n";
+		default:
+			break;
+	}
 	
 	$path = __DIR__ . $request->path;
 	
@@ -792,7 +803,7 @@ class HttpResponse {
 		if($this->isHeadSent) return true;
 		$this->isHeadSent = true;
 		
-		if($bodyLen > 0) {
+		if($bodyLen >= 0) {
 			$this->headers['Content-Length'] = $bodyLen;
 		} else {
 			$this->headers['Transfer-Encoding'] = 'chunked';
@@ -822,14 +833,13 @@ class HttpResponse {
 	}
 	
 	public function write(string $data) {
-		if(!$this->headSend()) return false;
+		if(!$this->headSend(-1)) return false;
 		
 		$n = strlen($data);
 		if($n === 0) return true;
 		
 		if($this->isChunked) {
-			$data = sprintf("%x\r\n%s", $n, $data);
-			$n = strlen($data);
+			$data = sprintf("%x\r\n%s\r\n", $n, $data);
 		}
 		
 		return $this->send($data);
@@ -844,9 +854,9 @@ class HttpResponse {
 		
 		if($this->isChunked) {
 			if($n) {
-				$data = sprintf("%x\r\n%s0\r\n", $n, $data);
+				$data = sprintf("%x\r\n%s\r\n0\r\n\r\n", $n, $data);
 			} else {
-				$data = "0\r\n";
+				$data = "0\r\n\r\n";
 			}
 		}
 		
