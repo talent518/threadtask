@@ -71,7 +71,7 @@ if(defined('THREAD_TASK_NAME')) {
 			do {
 				$request = new HttpRequest($fd, $addr, $port, 'onBody');
 				while(($ret = $request->read()) === false);
-				if(!$ret && $request->readlen === 0) break;
+				if(!$request->isHTTP) break;
 
 				// var_dump($request, $ret);
 
@@ -123,7 +123,7 @@ if(defined('THREAD_TASK_NAME')) {
 		do {
 			$request = new HttpRequest($fd, $addr, $port, 'onBody');
 			while(($ret = $request->read()) === false);
-			if(!$ret && $request->readlen === 0) break;
+			if(!$request->isHTTP) break;
 
 			// var_dump($request, $ret);
 
@@ -237,6 +237,7 @@ if(defined('THREAD_TASK_NAME')) {
 
 function strerror($msg, $isExit = true) {
 	$err = socket_last_error();
+	socket_clear_error();
 	if($err === SOCKET_EINTR) return;
 
 	ob_start();
@@ -249,7 +250,7 @@ function strerror($msg, $isExit = true) {
 }
 
 function onBody(HttpRequest $request): bool {
-	$request->isDav = strncmp($request->path, '/dav/', 5) === 0;
+	$request->isDav = strncmp($request->path . '/', '/dav/', 5) === 0;
 
 	if($request->isDav) {
 		if($request->method === 'POST' || $request->method === 'PUT') {
@@ -295,6 +296,9 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 			if($request->isDav) {
 				$path = __DIR__ . $request->path;
 				switch($request->method) {
+					case 'OPTIONS':
+						$response->headers['Allow'] = 'HEAD, GET, PUT, MKCOL, DELETE';
+						return null;
 					case 'POST':
 					case 'PUT':
 						if(($n = @filesize($path)) !== $request->bodylen) {
@@ -330,7 +334,21 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 			}
 			break;
 	}
-	
+
+	switch($request->method) {
+		case 'OPTIONS':
+			$response->headers['Allow'] = 'HEAD, GET';
+			return null;
+		case 'HEAD':
+		case 'GET':
+			break;
+		default:
+			$response->status = 405;
+			$response->statusText = 'Method Not Allowed';
+
+			return '<h1>Method Not Allowed</h1>';
+	}
+
 	if(is_dir($path)) {
 		$files = [];
 		$_path = rtrim($request->path, '/') . '/';
@@ -459,6 +477,7 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 			}
 			fclose($fp);
 		}
+		return null;
 	} else {
 		$response->status = 404;
 		$response->statusText = 'Not Found';
@@ -535,6 +554,7 @@ class HttpRequest {
 	public ?string $method = null;
 	public ?string $uri = null;
 	public ?string $protocol = null;
+	public bool $isHTTP = false;
 
 	public ?string $path = null;
 	public array $get = [];
@@ -610,6 +630,7 @@ class HttpRequest {
 		$n = @socket_recv($this->fd, $buf, 16384, 0);
 		if($n === false) {
 			if($this->readlen) strerror('socket_recv', false);
+			socket_clear_error();
 			return null;
 		}
 		if($n <= 0) {
@@ -641,6 +662,7 @@ class HttpRequest {
 						if(isset($uri['path'])) {
 							$this->path = $uri['path'];
 							if(strpos($this->path, '%') !== false) $this->path = urldecode($this->path);
+							$this->isHTTP = preg_match('/HTTP\/1\.[01]/', $this->protocol) > 0;
 						}
 						if(isset($uri['query'])) {
 							parse_str($uri['query'], $this->get);
@@ -902,7 +924,9 @@ class HttpResponse {
 			$this->headers['Transfer-Encoding'] = 'chunked';
 			$this->isChunked = true;
 		}
-		
+
+		$this->headers['Date'] = gmdate('l d F Y H:i:s') . ' GMT';
+
 		ob_start();
 		ob_implicit_flush(false);
 		echo $this->protocol, ' ', $this->status, ' ', $this->statusText, "\r\n";
@@ -968,6 +992,7 @@ class HttpResponse {
 			} else return true;
 		} else {
 			// strerror('socket_send', false);
+			socket_clear_error();
 			return false;
 		}
 	}
