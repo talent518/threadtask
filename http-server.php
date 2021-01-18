@@ -333,6 +333,7 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 	
 	if(is_dir($path)) {
 		$files = [];
+		$_path = rtrim($request->path, '/') . '/';
 		if(($dh = @opendir($path)) !== false) {
 			while(($f=readdir($dh)) !== false) {
 				if($f === '.' || $f === '..') continue;
@@ -340,7 +341,7 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 				$st = stat($path . '/' . $f);
 				$files[] = [
 					'name' => $f,
-					'url' => ($request->path === '/' ? '/' : $request->path . '/') . $f,
+					'url' => $_path . $f,
 					'size' => $st['size'],
 					'perms' => getperms($st['mode'], $type),
 					'type' => $type,
@@ -371,6 +372,11 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 			
 			if($sort === 'asc') usort($files, $call);
 			else usort($files, function($a, $b) use($call) {return -$call($a, $b);});
+		}
+
+		if(isset($request->get['json'])) {
+			$response->setContentType('application/json; charset=utf-8');
+			return json_encode($files, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
 		}
 
 		ob_start();
