@@ -69,7 +69,7 @@ if(defined('THREAD_TASK_NAME')) {
 
 			$t = microtime(true);
 			do {
-				$request = new HttpRequest($fd, $addr, $port);
+				$request = new HttpRequest($fd, $addr, $port, 'onBody');
 				while(($ret = $request->read()) === false);
 				if(!$ret && $request->readlen === 0) break;
 
@@ -80,7 +80,7 @@ if(defined('THREAD_TASK_NAME')) {
 				}
 
 				if($ret) {
-					$response = new HttpResponse($fd, $request->protocol);
+					$response = $request->getResponse();
 					if($request->isKeepAlive) {
 						$response->headers['Connection'] = 'keep-alive';
 					} else {
@@ -94,7 +94,7 @@ if(defined('THREAD_TASK_NAME')) {
 					}
 				} else {
 					if($ret === 0) {
-						$response = new HttpResponse($fd, $request->protocol ?: 'HTTP/1.1', 400, 'Bad Request');
+						$response = $request->getResponse(400, 'Bad Request');
 						$response->setContentType('text/plain');
 						$response->headers['Connection'] = 'close';
 						$response->end('Bad Request');
@@ -121,7 +121,7 @@ if(defined('THREAD_TASK_NAME')) {
 
 		$t = microtime(true);
 		do {
-			$request = new HttpRequest($fd, $addr, $port);
+			$request = new HttpRequest($fd, $addr, $port, 'onBody');
 			while(($ret = $request->read()) === false);
 			if(!$ret && $request->readlen === 0) break;
 
@@ -132,7 +132,7 @@ if(defined('THREAD_TASK_NAME')) {
 			}
 
 			if($ret) {
-				$response = new HttpResponse($fd, $request->protocol);
+				$response = $request->getResponse();
 				if($request->isKeepAlive) {
 					$response->headers['Connection'] = ($request->headers['Connection'] ?? 'Keep-Alive');
 				} else {
@@ -145,8 +145,8 @@ if(defined('THREAD_TASK_NAME')) {
 					break;
 				}
 			} else {
-				if($ret === 0 && $request->protocol) {
-					$response = new HttpResponse($fd, $request->protocol, 400, 'Bad Request');
+				if($ret === 0) {
+					$response = $request->getResponse(400, 'Bad Request');
 					$response->setContentType('text/plain');
 					$response->headers['Connection'] = 'close';
 					$response->end('Bad Request');
@@ -248,6 +248,29 @@ function strerror($msg, $isExit = true) {
 	if($isExit) exit; else return true;
 }
 
+function onBody(HttpRequest $request): bool {
+	$request->isDav = strncmp($request->path, '/dav/', 5) === 0;
+
+	if($request->isDav) {
+		if($request->method === 'POST' || $request->method === 'PUT') {
+			$fp = @fopen(__DIR__ . $request->path, 'wb+');
+			if($fp) {
+				$request->setFp($fp);
+			} else {
+				$response = $request->getResponse(404, 'Not Found');
+				$response->end('<h1>Not Found: fopen failure</h1>');
+				return false;
+			}
+		}
+	} elseif($request->bodylen > 8*1024*1024) {
+		$response = $request->getResponse(413, 'Request Entity Too Large');
+		$response->end('<h1>Request Entity Too Large</h1>');
+		return false;
+	}
+	
+	return true;
+}
+
 function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 	switch($request->path) {
 		case '/request-info':
@@ -269,10 +292,44 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 			for($i=0;$i<$n;$i++) $response->write("LINE: $i/$n\r\n");
 			return $n % 2 === 0 ? null : "END: $i/$n\r\n";
 		default:
+			if($request->isDav) {
+				$path = __DIR__ . $request->path;
+				switch($request->method) {
+					case 'POST':
+					case 'PUT':
+						if(($n = @filesize($path)) !== $request->bodylen) {
+							$response->status = 500;
+							$response->statusText = 'Internal Server Error';
+							return $n === false ? 'Upload failure' : 'File size not equal';
+						} else {
+							return 'OK';
+						}
+						break;
+					case 'MKCOL':
+						if(is_dir($path)) {
+							return 'The directory already exists';
+						} elseif(@mkdir($path, 0755, true)) {
+							return 'OK';
+						} else {
+							$response->status = 500;
+							$response->statusText = 'Internal Server Error';
+							return 'mkdir failure';
+						}
+					case 'DELETE':
+						if(@unlink($path)) {
+							return 'OK';
+						} else {
+							$response->status = 500;
+							$response->statusText = 'Internal Server Error';
+							return 'Delete failure';
+						}
+						break;
+				}
+			} else {
+				$path = __DIR__ . $request->path;
+			}
 			break;
 	}
-	
-	$path = __DIR__ . $request->path;
 	
 	if(is_dir($path)) {
 		$files = [];
@@ -492,6 +549,10 @@ class HttpRequest {
 	public int $bodylen = 0;
 	public int $bodyoff = 0;
 	
+	public bool $isDav = false;
+	
+	private $onBody = null;
+	
 	private bool $isToFile = IS_TO_FILE;
 	private $fp = null;
 	private int $formmode = self::FORM_MODE_BOUNDARY;
@@ -515,10 +576,11 @@ class HttpRequest {
 	const FORM_MODE_HEAD = 2;
 	const FORM_MODE_VALUE = 3;
 
-	public function __construct($fd, string $addr, int $port) {
+	public function __construct($fd, string $addr, int $port, ?callable $onBody = null) {
 		$this->fd = $fd;
 		$this->clientAddr = $addr;
 		$this->clientPort = $port;
+		$this->onBody = $onBody;
 	}
 	
 	public function __destruct() {
@@ -526,6 +588,14 @@ class HttpRequest {
 			fclose($this->fp);
 			$this->fp = null;
 		}
+	}
+	
+	public function setFp($fp) {
+		if($this->bodylen > 0 && $this->bodyoff === 0) $this->fp = $fp;
+	}
+	
+	public function getResponse(int $status = 200, $statusText = 'OK'): HttpResponse {
+		return new HttpResponse($this->fd, $this->protocol??'HTTP/1.0', $status, $statusText);
 	}
 
 	public function read() {
@@ -591,6 +661,14 @@ class HttpRequest {
 						$this->bodytype = $args[0];
 						unset($args[0]);
 						$this->bodyargs = $args;
+						
+						if(($onBody = $this->onBody) !== null && !$onBody($this)) {
+							return null;
+						}
+
+						if(isset($this->headers['Expect']) && $this->headers['Expect'] === '100-continue') {
+							if(!$this->send("{$this->protocol} 100 Continue\r\n\r\n")) return null;
+						}
 
 						switch($this->bodytype) {
 							case 'application/x-www-form-urlencoded':
@@ -598,9 +676,6 @@ class HttpRequest {
 								break;
 							case 'multipart/form-data':
 								$this->bodymode = self::BODY_MODE_FORM_DATA;
-								if(isset($this->headers['Expect']) && $this->headers['Expect'] === '100-continue') {
-									if(!$this->send("{$this->protocol} 100 Continue\r\n\r\n")) return null;
-								}
 								$this->boundary = $this->bodyargs['boundary'];
 								$this->boundaryBgn = '--' . $this->boundary;
 								$this->boundaryPos = "\r\n--{$this->boundary}";
@@ -716,6 +791,17 @@ class HttpRequest {
 							echo "BODYOFF: $buf\n";
 							return 0;
 						}
+					} elseif($this->fp) {
+						if($i === 0) {
+							fwrite($this->fp, $buf, $n);
+						} else {
+							fwrite($this->fp, substr($buf, $i), $n - $i);
+						}
+						if($this->bodyoff >= $this->bodylen) {
+							fclose($this->fp);
+							$this->fp = null;
+							$this->mode = self::MODE_END;
+						}
 					} else {
 						$this->buf = substr($buf, $i);
 						if($this->bodyoff >= $this->bodylen) {
@@ -736,6 +822,7 @@ class HttpRequest {
 									}
 									break;
 								default:
+									
 									break;
 							}
 						}
