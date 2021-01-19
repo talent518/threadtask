@@ -13,6 +13,7 @@
 	#wrapper>*{padding:5px;border:1px #ccc solid;}
 	#wrapper>p{border-color:#999;}
 	#wrapper b{margin-right:1em;}
+	#wrapper a{float:right;font-size:14px;}
 	textarea{border:1px #ccc solid;outline:none;vertical-align:bottom;}
 	textarea:focus{border-color:#999;}
 	button{padding:5px;outline:none;}
@@ -21,6 +22,7 @@
 <body>
 	<div id="wrapper">
 	</div>
+	<div id="last"></div>
 	<form id="msgfrm">
 		<textarea name="msg" cols="80" rows="10"></textarea>
 		<button type="submit">Send</button>
@@ -29,13 +31,22 @@
 	<script type="text/javascript">
 	const wrapper = document.getElementById('wrapper');
 	const msgfrm = document.getElementById('msgfrm');
+	const last = document.getElementById('last');
+	let I = 0;
 	const append = function(data, tag) {
 		const p = document.createElement(tag||'p');
 		const b = document.createElement('b');
+		const a = document.createElement('a');
 		p.innerText = data;
+		p.id = p.name = 'msg' + I;
 		b.innerText = new Date().toLocaleTimeString();
+		a.innerText = 'next';
+		a.href = '#msg' + (++I);
 		p.prepend(b);
+		p.prepend(a);
 		wrapper.appendChild(p);
+		
+		last.id = last.name = 'msg' + I;
 	};
 	const ws = new WebSocket('ws://' + location.host + '/ws');
 	ws.onopen = function(e) {

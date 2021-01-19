@@ -39,7 +39,19 @@ if(defined('THREAD_TASK_NAME')) {
 		while($running) {
 			$rfds = $reads;
 			$rfds[] = $rfd;
-			if(@socket_select($rfds, $wfds, $efds, 30) === false) continue;
+			if(($i = @socket_select($rfds, $wfds, $efds, 30)) === false) continue;
+			if($i === 0) {
+				// echo "PING\n";
+				$buf = mask('ping', 0x89);
+				foreach($reads as $i=>$fd) {
+					if(@socket_write($fd, $buf) === false) {
+						unset($reads[$i], $bufs[$i]);
+						//@socket_shutdown($fd) or strerror('socket_shutdown', false);
+						@socket_close($fd);
+					}
+				}
+				continue;
+			}
 			
 			$i = array_search($rfd, $rfds, true);
 			if($i !== false) {
@@ -62,6 +74,7 @@ if(defined('THREAD_TASK_NAME')) {
 				$i = array_search($fd, $reads, true);
 				$buf = @socket_read($fd, 16384);
 				if($buf === false) {
+					close:
 					unset($reads[$i], $bufs[$i]);
 					//@socket_shutdown($fd) or strerror('socket_shutdown', false);
 					@socket_close($fd);
@@ -75,6 +88,7 @@ if(defined('THREAD_TASK_NAME')) {
 							$masks = $bufs[$i][0];
 							$buf = $bufs[$i][1] . $buf;
 							$length = $bufs[$i][2];
+							$ctl = $bufs[$i][3];
 							
 							$n = strlen($buf);
 							if($n < $length) {
@@ -98,7 +112,10 @@ if(defined('THREAD_TASK_NAME')) {
 						$buf = null;
 						continue;
 					}
-					$length = ord($buf[1]) & 127;
+					$cc = unpack('C2', $buf);
+					$ctl = $cc[1] & 0xf;
+					$length = $cc[2] & 127;
+					unset($cc);
 					if($length == 126) {
 						if($n < 8) goto trybuf;
 						$length = unpack('n', $buf, 2)[1];
@@ -115,7 +132,7 @@ if(defined('THREAD_TASK_NAME')) {
 					}
 					$n = strlen($buf);
 					if($n < $length) {
-						$bufs[$i] = [$masks, $buf, $length];
+						$bufs[$i] = [$masks, $buf, $length, $ctl];
 						$buf = $masks = null;
 						continue;
 					} elseif($n > $length) {
@@ -128,6 +145,32 @@ if(defined('THREAD_TASK_NAME')) {
 						$text .= $buf[$_i] ^ $masks[$_i % 4];
 					}
 					$buf = $text;
+
+					switch($ctl) {
+						case 0x1: // text
+						case 0x2: // binary
+							break;
+						case 0x8: // close
+							if($length > 2) {
+								$errno = unpack('n', $buf)[1];
+								$error = substr($buf, 2);
+								echo "WebSocket($errno): $error\n";
+							}
+							goto close;
+							break;
+						case 0x9: // ping
+							// echo "ping\n";
+							if(@socket_write($fd, mask($buf, 0x8a)) === false) goto close;
+							goto next;
+							break;
+						case 0xA: // pong
+							// echo "pong\n";
+							goto next;
+							break;
+						default:
+							goto close;
+							break;
+					}
 
 					// mask for message
 					$buf = mask($buf);
@@ -143,6 +186,7 @@ if(defined('THREAD_TASK_NAME')) {
 						}
 					}
 
+				next:
 					if(isset($bufs[$i])) {
 						$buf = $bufs[$i];
 						unset($bufs[$i]);
@@ -405,14 +449,14 @@ function strerror($msg, $isExit = true) {
 	if($isExit) exit; else return true;
 }
 
-function mask($txt) {
+function mask($txt, $ctl = 0x81) {
 	$n = strlen($txt);
 	if($n <= 125)
-		return pack('CC', 0x81, $n) . $txt;
+		return pack('CC', $ctl, $n) . $txt;
 	elseif($n > 125 && $n < 65536)
-		return pack('CCn', 0x81, 126, $n) . $txt;
+		return pack('CCn', $ctl, 126, $n) . $txt;
 	else
-		return pack('CCJ', 0x81, 127, $n) . $txt;
+		return pack('CCJ', $ctl, 127, $n) . $txt;
 }
 
 function onBody(HttpRequest $request): bool {
