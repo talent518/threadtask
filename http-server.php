@@ -33,6 +33,7 @@ if(defined('THREAD_TASK_NAME')) {
 
 	if(THREAD_TASK_NAME === 'ws') {
 		$rfd = socket_import_fd((int) $_SERVER['argv'][1]);
+		$bufs = [];
 		$reads = [];
 		$wfds = $efds = null;
 		while($running) {
@@ -58,27 +59,98 @@ if(defined('THREAD_TASK_NAME')) {
 				$reads[] = $fd;
 			}
 			foreach($rfds as $fd) {
-				$buf = @socket_read($fd, 65535);
-				if($buf === false || $buf === 0) {
-					$i = array_search($fd, $reads, true);
-					if($i !== false) unset($reads[$i]);
+				$i = array_search($fd, $reads, true);
+				$buf = @socket_read($fd, 16384);
+				if($buf === false) {
+					unset($reads[$i], $bufs[$i]);
 					//@socket_shutdown($fd) or strerror('socket_shutdown', false);
 					@socket_close($fd);
 				} else {
-					$buf = mask(unmask($buf));
-					// var_dump($buf);
-					foreach($reads as $i=>$_fd) {
+					// unmask for message
+					if(isset($bufs[$i])) {
+						if(is_string($bufs[$i])) {
+							$buf = $bufs[$i] . $buf;
+							unset($bufs[$i]);
+						} else {
+							$masks = $bufs[$i][0];
+							$buf = $bufs[$i][1] . $buf;
+							$length = $bufs[$i][2];
+							
+							$n = strlen($buf);
+							if($n < $length) {
+								$bufs[$i][1] = $buf;
+								$buf = null;
+								continue;
+							} elseif($n == $length) {
+								unset($bufs[$i]);
+							} else {
+								$bufs[$i] = substr($buf, $length);
+								$buf = substr($buf, 0, $length);
+							}
+							goto unmask;
+						}
+					}
+				unpack:
+					$n = strlen($buf);
+					if($n < 6) {
+						trybuf:
+						$bufs[$i] = $buf;
+						$buf = null;
+						continue;
+					}
+					$length = ord($buf[1]) & 127;
+					if($length == 126) {
+						if($n < 8) goto trybuf;
+						$length = unpack('n', $buf, 2)[1];
+						$masks = substr($buf, 4, 4);
+						$buf = substr($buf, 8);
+					} elseif($length == 127) {
+						if($n < 14) goto trybuf;
+						$length = unpack('J', $buf, 2)[1];
+						$masks = substr($buf, 10, 4);
+						$buf = substr($buf, 14);
+					} else {
+						$masks = substr($buf, 2, 4);
+						$buf = substr($buf, 6);
+					}
+					$n = strlen($buf);
+					if($n < $length) {
+						$bufs[$i] = [$masks, $buf, $length];
+						$buf = $masks = null;
+						continue;
+					} elseif($n > $length) {
+						$bufs[$i] = substr($buf, $length);
+						$buf = substr($buf, 0, $length);
+					}
+				unmask:
+					$text = "";
+					for($_i = 0; $_i < $length; ++$_i) {
+						$text .= $buf[$_i] ^ $masks[$_i % 4];
+					}
+					$buf = $text;
+
+					// mask for message
+					$buf = mask($buf);
+
+					// send message
+					foreach($reads as $_i=>$_fd) {
 						if(@socket_write($_fd, $buf) === false) {
-							unset($reads[$i]);
-							$i = array_search($_fd, $rfds, true);
-							if($i !== false) unset($rfds[$i]);
+							unset($reads[$_i], $bufs[$_i]);
+							$_i = array_search($_fd, $rfds, true);
+							if($_i !== false) unset($rfds[$_i]);
 							//@socket_shutdown($fd) or strerror('socket_shutdown', false);
 							@socket_close($fd);
 						}
 					}
+
+					if(isset($bufs[$i])) {
+						$buf = $bufs[$i];
+						unset($bufs[$i]);
+						goto unpack;
+					}
 				}
 			}
-			$buf = null;
+			$buf = $text = $masks = null;
 		}
 		socket_export_fd($rfd, true); // skip close socket
 		$rfds = null;
@@ -333,35 +405,14 @@ function strerror($msg, $isExit = true) {
 	if($isExit) exit; else return true;
 }
 
-function unmask($text) {
-    $length = @ord($text[1]) & 127;
-    if($length == 126) {
-    	$masks = substr($text, 4, 4);
-    	$data = substr($text, 8);
-    } elseif($length == 127) {
-    	$masks = substr($text, 10, 4);
-    	$data = substr($text, 14);
-    } else {
-    	$masks = substr($text, 2, 4);
-    	$data = substr($text, 6);
-    }
-    $text = "";
-    for($i = 0; $i < strlen($data); ++$i) {
-    	$text .= $data[$i] ^ $masks[$i % 4];
-    }
-    return $text;
-}
-
-function mask($text) {
-    $b1 = 0x80 | (0x1 & 0x0f);
-    $length = strlen($text);
-    if($length <= 125)
-        $header = pack('CC', $b1, $length);
-    elseif($length > 125 && $length < 65536)
-        $header = pack('CCn', $b1, 126, $length);
-    else
-        $header = pack('CCNN', $b1, 127, $length);
-    return $header.$text;
+function mask($txt) {
+	$n = strlen($txt);
+	if($n <= 125)
+		return pack('CC', 0x81, $n) . $txt;
+	elseif($n > 125 && $n < 65536)
+		return pack('CCn', 0x81, 126, $n) . $txt;
+	else
+		return pack('CCJ', 0x81, 127, $n) . $txt;
 }
 
 function onBody(HttpRequest $request): bool {
