@@ -1,0 +1,37 @@
+<div id="wrapper">
+</div>
+<form id="msgfrm">
+	<input name="msg" type="text" value="" />
+	<button type="submit">Send</button>
+</form>
+
+<script type="text/javascript">
+const wrapper = document.getElementById('wrapper');
+const msgfrm = document.getElementById('msgfrm');
+const append = function(data) {
+	const p = document.createElement('p');
+	p.innerText = data;
+	wrapper.appendChild(p);
+};
+const ws = new WebSocket('ws://' + location.host + '/ws');
+ws.onopen = function(e) {
+	append('Connected');
+};
+ws.onerror = console.log;
+ws.onmessage = function(e) {
+	append('RECV: ' + e.data);
+};
+ws.onclose = function(e) {
+	append('Closed');
+};
+
+msgfrm.onsubmit = function() {
+	const val = this.msg.value;
+	if(val) {
+		ws.send(val);
+		this.msg.value = '';
+	}
+	return false;
+};
+</script>
+
