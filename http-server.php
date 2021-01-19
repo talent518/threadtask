@@ -31,7 +31,62 @@ define('IS_TO_FILE', ($env = getenv('IS_TO_FILE')) === false ? true : !empty($en
 if(defined('THREAD_TASK_NAME')) {
 	// echo THREAD_TASK_NAME . PHP_EOL;
 
-	if(strncmp(THREAD_TASK_NAME, 'accept', 6) == 0) {
+	if(THREAD_TASK_NAME === 'ws') {
+		$rfd = socket_import_fd((int) $_SERVER['argv'][1]);
+		$reads = [];
+		$wfds = $efds = null;
+		while($running) {
+			$rfds = $reads;
+			$rfds[] = $rfd;
+			if(@socket_select($rfds, $wfds, $efds, 30) === false) continue;
+			
+			$i = array_search($rfd, $rfds, true);
+			if($i !== false) {
+				unset($rfds[$i]);
+				if(($n = @socket_read($rfd, 8)) === false) continue;
+				if(strlen($n) !== 8) {
+					printf("ERR: %d\n", strlen($n));
+					break;
+				}
+
+				$i = unpack('q', $n)[1];
+				list($fd, $addr, $port) = share_var_get_and_del('accepts', $i);
+
+				$fd = socket_import_fd($fd);
+				$buf = mask("$addr:$port connected");
+				@socket_write($fd, $buf); // var_dump($buf);
+				$reads[] = $fd;
+			}
+			foreach($rfds as $fd) {
+				$buf = @socket_read($fd, 65535);
+				if($buf === false || $buf === 0) {
+					$i = array_search($fd, $reads, true);
+					if($i !== false) unset($reads[$i]);
+					//@socket_shutdown($fd) or strerror('socket_shutdown', false);
+					@socket_close($fd);
+				} else {
+					$buf = mask(unmask($buf));
+					// var_dump($buf);
+					foreach($reads as $i=>$_fd) {
+						if(@socket_write($_fd, $buf) === false) {
+							unset($reads[$i]);
+							$i = array_search($_fd, $rfds, true);
+							if($i !== false) unset($rfds[$i]);
+							//@socket_shutdown($fd) or strerror('socket_shutdown', false);
+							@socket_close($fd);
+						}
+					}
+				}
+			}
+			$buf = null;
+		}
+		socket_export_fd($rfd, true); // skip close socket
+		$rfds = null;
+		foreach($reads as $fd) {
+			//@socket_shutdown($fd) or strerror('socket_shutdown', false);
+			@socket_close($fd);
+		}
+	} elseif(strncmp(THREAD_TASK_NAME, 'accept', 6) == 0) {
 		//$sock = socket_import_fd((int) $_SERVER['argv'][1]);
 		$sock = (int) $_SERVER['argv'][1];
 		$flag = (bool) $_SERVER['argv'][2];
@@ -54,6 +109,7 @@ if(defined('THREAD_TASK_NAME')) {
 		//echo THREAD_TASK_NAME . " Closed\n";
 	} elseif(empty($_SERVER['argv'][1])) {
 		$rfd = socket_import_fd((int) $_SERVER['argv'][2]);
+		$wfd = socket_import_fd(share_var_get('wsfd'));
 		while($running) {
 			if(($n = @socket_read($rfd, 8)) === false) continue;
 			if(strlen($n) !== 8) {
@@ -88,6 +144,14 @@ if(defined('THREAD_TASK_NAME')) {
 					}
 					if($response->end(onRequest($request, $response))) {
 						share_var_inc('success', 1);
+
+						if($response->isWebSocket) {
+							$request->isKeepAlive = false;
+
+							$fd = socket_export_fd($fd, true);
+							share_var_set('accepts', $i, [$fd,$addr,$port]);
+							socket_write($wfd, pack('q', $i));
+						}
 					} else {
 						share_var_inc('error', 1);
 						break;
@@ -108,6 +172,7 @@ if(defined('THREAD_TASK_NAME')) {
 		}
 
 		socket_export_fd($rfd, true); // skip close socket
+		socket_export_fd($wfd, true); // skip close socket
 
 		//echo THREAD_TASK_NAME . " Closed\n";
 	} else {
@@ -140,6 +205,16 @@ if(defined('THREAD_TASK_NAME')) {
 				}
 				if($response->end(onRequest($request, $response))) {
 					share_var_inc('success', 1);
+					
+					if($response->isWebSocket) {
+						$request->isKeepAlive = false;
+
+						$fd = socket_export_fd($fd, true);
+						share_var_set('accepts', $i, [$fd,$addr,$port]);
+						$wfd = socket_import_fd(share_var_get('wsfd'));
+						socket_write($wfd, pack('q', $i));
+						socket_export_fd($wfd, true); // skip close socket
+					}
 				} else {
 					share_var_inc('error', 1);
 					break;
@@ -183,11 +258,16 @@ if(defined('THREAD_TASK_NAME')) {
 	echo "Server listening on $host:$port\n";
 
 	share_var_init(3);
+
+	socket_create_pair(AF_UNIX, SOCK_STREAM, 0, $wspairs) or strerror('socket_set_option');
+	share_var_set('wsfd', socket_export_fd($wspairs[1]));
+	create_task('ws', __FILE__, [socket_export_fd($wspairs[0])]);
+
 	if(!$flag) {
 		share_var_set('accepts', []);
 		for($i=0; $i<100; $i++) create_task('read' . $i, __FILE__, [0,$rfd]);
 	}
-	for($i=0; $i<8; $i++) create_task('accept' . $i, __FILE__, [$fd,$flag,$wfd]);
+	for($i=0; $i<4; $i++) create_task('accept' . $i, __FILE__, [$fd,$flag,$wfd]);
 	$n = $ns = $ne = 0;
 	while($running) {
 		sleep(1);
@@ -227,6 +307,10 @@ if(defined('THREAD_TASK_NAME')) {
 			@socket_close($fd);
 		}
 	}
+	foreach($wspairs as $fd) {
+		@socket_shutdown($fd) or strerror('socket_shutdown', false);
+		@socket_close($fd);
+	}
 
 	// echo json_encode(share_var_get(), JSON_PRETTY_PRINT);
 
@@ -247,6 +331,37 @@ function strerror($msg, $isExit = true) {
 	printf("[%s] %s(%d): %s\n%s", defined('THREAD_TASK_NAME') ? THREAD_TASK_NAME : 'main', $msg, $err, socket_strerror($err), $trace);
 
 	if($isExit) exit; else return true;
+}
+
+function unmask($text) {
+    $length = @ord($text[1]) & 127;
+    if($length == 126) {
+    	$masks = substr($text, 4, 4);
+    	$data = substr($text, 8);
+    } elseif($length == 127) {
+    	$masks = substr($text, 10, 4);
+    	$data = substr($text, 14);
+    } else {
+    	$masks = substr($text, 2, 4);
+    	$data = substr($text, 6);
+    }
+    $text = "";
+    for($i = 0; $i < strlen($data); ++$i) {
+    	$text .= $data[$i] ^ $masks[$i % 4];
+    }
+    return $text;
+}
+
+function mask($text) {
+    $b1 = 0x80 | (0x1 & 0x0f);
+    $length = strlen($text);
+    if($length <= 125)
+        $header = pack('CC', $b1, $length);
+    elseif($length > 125 && $length < 65536)
+        $header = pack('CCn', $b1, 126, $length);
+    else
+        $header = pack('CCNN', $b1, 127, $length);
+    return $header.$text;
 }
 
 function onBody(HttpRequest $request): bool {
@@ -292,6 +407,24 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 			$n = rand(5, 50);
 			for($i=0;$i<$n;$i++) $response->write("LINE: $i/$n\r\n");
 			return $n % 2 === 0 ? null : "END: $i/$n\r\n";
+		case '/ws':
+			if(!isset($request->headers['Upgrade'], $request->headers['Sec-WebSocket-Key'], $request->headers['Sec-WebSocket-Version']) || empty($request->headers['Sec-WebSocket-Key']) || $request->headers['Upgrade'] !== 'websocket') {
+				$response->status = 404;
+				$response->statusText = 'Not Found';
+				return '<h1>Not Found</h1>';
+			}
+			$host = $request->headers['Host'] ?? '127.0.0.1:5000';
+			$secAccept = base64_encode(pack('H*', sha1($request->headers['Sec-WebSocket-Key'] . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')));
+			$response->status = 101;
+			$response->statusText = 'Web Socket Protocol Handshake';
+			$response->headers['Upgrade'] = 'websocket';
+			$response->headers['Connection'] = 'Upgrade';
+			$response->headers['WebSocket-Origin'] = $host;
+			$response->headers['WebSocket-Location'] = 'ws://' . $host . $request->path;
+			$response->headers['Sec-WebSocket-Version'] = $request->headers['Sec-WebSocket-Version'];
+			$response->headers['Sec-WebSocket-Accept'] = $secAccept;
+			$response->isWebSocket = true;
+			return null;
 		default:
 			if($request->isDav) {
 				$path = __DIR__ . $request->path;
@@ -908,6 +1041,7 @@ class HttpResponse {
 	public array $headers = ['Content-Type'=>'text/html; charset=utf-8'];
 	public bool $isChunked = false;
 	public bool $isEnd = false;
+	public bool $isWebSocket = false;
 	
 	public function __construct($fd, string $protocol, int $status = 200, $statusText = 'OK') {
 		$this->fd = $fd;
