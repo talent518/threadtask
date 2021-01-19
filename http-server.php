@@ -462,20 +462,21 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 		return ob_get_clean();
 	} elseif(is_file($path)) {
 		if(isset($request->get['format']) && pathinfo($request->path, PATHINFO_EXTENSION) === 'php') {
-			return highlight_file($path, true);
+			return ($buf = highlight_file($path, true)) === false ? null : $buf;
 		}
-		$response->setContentType(mime_content_type($path) ?: 'application/octet-stream');
-		$response->headSend(filesize($path));
 
 		if(($fp = @fopen($path, 'rb+')) !== false) {
-			while(!feof($fp)) {
-				if(($buf = fread($fp, 8192)) === false) {
+			$response->setContentType(@mime_content_type($path) ?: 'application/octet-stream');
+			$response->headSend(@fstat($fp)['size'] ?? 0);
+			while(!@feof($fp)) {
+				if(($buf = @fread($fp, 8192)) === false) {
+					$request->isKeepAlive = false;
 					break;
 				} else {
 					if(!$response->send($buf)) break;
 				}
 			}
-			fclose($fp);
+			@fclose($fp);
 		}
 		return null;
 	} else {
@@ -630,7 +631,8 @@ class HttpRequest {
 		$n = @socket_recv($this->fd, $buf, 16384, 0);
 		if($n === false) {
 			if($this->readlen) strerror('socket_recv', false);
-			socket_clear_error();
+			else socket_clear_error();
+			
 			return null;
 		}
 		if($n <= 0) {
