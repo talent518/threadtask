@@ -8,7 +8,7 @@ times=${times:-0}
 size=$(stat -c %s "$file")
 
 function request() {
-	echo -e "\e[33m$1\e[0m $host:$port" >&2
+	echo -e "\e[33m$1\e[0m" >&2
 
 	# connect
 	exec 8<>/dev/tcp/$host/$port
