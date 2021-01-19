@@ -1,37 +1,63 @@
-<div id="wrapper">
-</div>
-<form id="msgfrm">
-	<input name="msg" type="text" value="" />
-	<button type="submit">Send</button>
-</form>
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="origin" />
+    <meta http-equiv="Cache-Control" content="no-transform" />
+    <meta http-equiv="Cache-Control" content="no-siteapp" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <title>WebSocket Demo</title>
+	<style type="text/css">
+	#wrapper{font-size:14px;}
+	#wrapper>*{padding:5px;border:1px #ccc solid;}
+	#wrapper>p{border-color:#999;}
+	#wrapper b{margin-right:1em;}
+	textarea{border:1px #ccc solid;outline:none;vertical-align:bottom;}
+	textarea:focus{border-color:#999;}
+	button{padding:5px;outline:none;}
+	</style>
+</head>
+<body>
+	<div id="wrapper">
+	</div>
+	<form id="msgfrm">
+		<textarea name="msg" cols="80" rows="10"></textarea>
+		<button type="submit">Send</button>
+	</form>
 
-<script type="text/javascript">
-const wrapper = document.getElementById('wrapper');
-const msgfrm = document.getElementById('msgfrm');
-const append = function(data) {
-	const p = document.createElement('p');
-	p.innerText = data;
-	wrapper.appendChild(p);
-};
-const ws = new WebSocket('ws://' + location.host + '/ws');
-ws.onopen = function(e) {
-	append('Connected');
-};
-ws.onerror = console.log;
-ws.onmessage = function(e) {
-	append('RECV: ' + e.data);
-};
-ws.onclose = function(e) {
-	append('Closed');
-};
+	<script type="text/javascript">
+	const wrapper = document.getElementById('wrapper');
+	const msgfrm = document.getElementById('msgfrm');
+	const append = function(data, tag) {
+		const p = document.createElement(tag||'p');
+		const b = document.createElement('b');
+		p.innerText = data;
+		b.innerText = new Date().toLocaleTimeString();
+		p.prepend(b);
+		wrapper.appendChild(p);
+	};
+	const ws = new WebSocket('ws://' + location.host + '/ws');
+	ws.onopen = function(e) {
+		append('Connected');
+	};
+	ws.onerror = console.log;
+	ws.onmessage = function(e) {
+		append(e.data, 'pre');
+	};
+	ws.onclose = function(e) {
+		append('Closed');
+	};
 
-msgfrm.onsubmit = function() {
-	const val = this.msg.value;
-	if(val) {
-		ws.send(val);
-		this.msg.value = '';
-	}
-	return false;
-};
-</script>
+	msgfrm.onsubmit = function() {
+		const val = this.msg.value;
+		if(val) {
+			ws.send(val);
+			this.msg.value = '';
+		}
+		return false;
+	};
+	</script>
+</body>
+</html>
 
