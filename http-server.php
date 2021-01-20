@@ -113,8 +113,12 @@ if(defined('THREAD_TASK_NAME')) {
 						continue;
 					}
 					$cc = unpack('C2', $buf);
+					if(!($cc[1] & 0x80) || ($cc[1] & 0x70) || !($cc[2] & 0x80)) { // !FIN || (RSV1 || RSV2 || RSV3) || !Mask
+						share_var_inc('error', 1);
+						goto close;
+					}
 					$ctl = $cc[1] & 0xf;
-					$length = $cc[2] & 127;
+					$length = $cc[2] & 0x7f;
 					unset($cc);
 					if($length == 126) {
 						if($n < 8) goto trybuf;
@@ -168,9 +172,12 @@ if(defined('THREAD_TASK_NAME')) {
 							goto next;
 							break;
 						default:
+							share_var_inc('error', 1);
 							goto close;
 							break;
 					}
+					
+					share_var_inc('success', 1);
 
 					// mask for message
 					$buf = mask($buf);

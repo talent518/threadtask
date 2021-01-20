@@ -25,7 +25,9 @@
 	<div id="last"></div>
 	<form id="msgfrm">
 		<textarea name="msg" cols="80" rows="10"></textarea>
-		<button type="submit">Send</button>
+		<button name="smt" type="submit" disabled="disabled">Send</button>
+		<button name="reconn" type="button" style="display:none;">Reconnect</button>
+		<button name="close" type="button" style="display:none;">Close</button>
 	</form>
 
 	<script type="text/javascript">
@@ -33,7 +35,7 @@
 	const msgfrm = document.getElementById('msgfrm');
 	const last = document.getElementById('last');
 	let I = 0;
-	const append = function(data, tag) {
+	const append = function(data, tag) { // append event or message to element
 		const p = document.createElement(tag||'p');
 		const b = document.createElement('b');
 		const a = document.createElement('a');
@@ -48,26 +50,48 @@
 		
 		last.id = last.name = 'msg' + I;
 	};
-	const ws = new WebSocket('ws://' + location.host + '/ws');
-	ws.onopen = function(e) {
-		append('Connected');
-	};
-	ws.onerror = console.log;
-	ws.onmessage = function(e) {
-		append(e.data, 'pre');
-	};
-	ws.onclose = function(e) {
-		append('Closed');
+	let ws = null;
+	const WS = function() { // WebSocket connect
+		ws = new WebSocket('ws://' + location.host + '/ws');
+		ws.onopen = function(e) {
+			append('Connected');
+			msgfrm.reconn.style.display = 'none';
+			msgfrm.close.style.display = 'inline-block';
+			msgfrm.smt.disabled = '';
+		};
+		ws.onerror = function(e) {
+			append('Error', 'p');
+		};
+		ws.onmessage = function(e) {
+			append(e.data, 'pre');
+		};
+		ws.onclose = function(e) {
+			append('Closed');
+			msgfrm.reconn.style.display = 'inline-block';
+			msgfrm.close.style.display = 'none';
+			msgfrm.smt.disabled = 'disabled';
+			ws = null;
+		};
 	};
 
+	// element event
 	msgfrm.onsubmit = function() {
 		const val = this.msg.value;
-		if(val) {
+		if(val && ws) {
 			ws.send(val);
 			this.msg.value = '';
 		}
 		return false;
 	};
+	msgfrm.reconn.onclick = function() {
+		WS();
+	};
+	msgfrm.close.onclick = function() {
+		ws.close();
+		ws = null;
+	};
+	
+	WS(); // auto connect
 	</script>
 </body>
 </html>
