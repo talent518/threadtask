@@ -254,7 +254,7 @@ if(defined('THREAD_TASK_NAME')) {
 
 				// var_dump($request, $ret);
 
-				if($request->isKeepAlive && microtime(true) - $t >= 10) {
+				if($request->isKeepAlive && microtime(true) - $t >= min(10, $request->headers['Keep-Alive']??10)) {
 					$request->isKeepAlive = false;
 				}
 
@@ -714,13 +714,155 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 
 		if(($fp = @fopen($path, 'rb+')) !== false) {
 			$response->setContentType(@mime_content_type($path) ?: 'application/octet-stream');
-			$response->headSend(@fstat($fp)['size'] ?? 0);
-			while(!@feof($fp)) {
-				if(($buf = @fread($fp, 8192)) === false) {
-					$request->isKeepAlive = false;
-					break;
+			$stat = @fstat($fp);
+			if($stat === false) {
+				fclose($fp);
+				
+				$response->status = 404;
+				$response->statusText = 'Not Found';
+				
+				return '<h1>Not Found</h1>';
+			}
+			$response->headers['Last-Modified'] = gmdate('D, d-M-Y H:i:s T', $stat['mtime']);
+			$response->headers['ETag'] = sprintf('%xT-%xO', $stat['mtime'], $stat['size']);
+			$response->headers['Accept-Ranges'] = 'bytes';
+			$response->headers['Expires'] = gmdate('D, d-M-Y H:i:s T', time() + 60);
+			$response->headers['Cache-Control'] = 'max-age=60';
+
+			if(isset($request->headers['If-None-Match'])) {
+				if($request->headers['If-None-Match'] === $response->headers['ETag']) {
+					$response->headers['If-None-Match'] = 'false';
+					$response->status = 304;
+					$response->statusText = 'Not Modified';
+					@fclose($fp);
+					return null;
 				} else {
-					if(!$response->send($buf)) break;
+					$response->headers['If-None-Match'] = 'true';
+				}
+			}
+
+			if(isset($request->headers['If-Modified-Since'])) {
+				if($request->headers['If-Modified-Since'] === $response->headers['Last-Modified']) {
+					$response->headers['If-Modified-Since'] = 'true';
+					$response->status = 304;
+					$response->statusText = 'Not Modified';
+					@fclose($fp);
+					return null;
+				} else {
+					$response->headers['If-Modified-Since'] = 'false';
+				}
+			}
+
+			if(isset($request->headers['If-Unmodified-Since'])) {
+				if(strcmp($request->headers['If-Unmodified-Since'], $response->headers['Last-Modified']) < 0) {
+					$response->headers['If-Unmodified-Since'] = 'false';
+					$response->status = 412;
+					$response->statusText = 'Precondition failed';
+					@fclose($fp);
+					return null;
+				} else {
+					$response->headers['If-Unmodified-Since'] = 'true';
+				}
+			}
+
+			if(isset($request->headers['If-Range'])) {
+				if(isset($request->headers['Range']) && $request->headers['If-Range'] === $response->headers['Last-Modified']) {
+					goto range;
+				}
+			} elseif(isset($request->headers['Range'])) {
+				range:
+				$ranges = [];
+				$range = $request->headers['Range'];
+				$n = preg_match_all('/(bytes=)?([0-9]+)\-([0-9]*),?\s*/i', $request->headers['Range'], $matches);
+
+				if($n && implode('', $matches[0]) === $range) {
+					for($i=0; $i<$n; $i++) {
+						$range = $matches[3][$i];
+						$start = $matches[2][$i];
+						$end = ($range === '' ? $stat['size']-1 : $range);
+						$ranges[] = [$start, $end];
+						if($start < 0 || $start > $stat['size'] || $end < 0 || $end > $stat['size']) {
+							$response->status = 416;
+							$response->statusText = 'Requested Range Not Satisfiable';
+							@fclose($fp);
+							return null;
+						}
+					}
+					if($n > 1) {
+						$boundary = bin2hex(random_bytes(8));
+						$boundaryEnd = "--$boundary--\r\n";
+						$contentType = $response->headers['Content-Type'];
+						$response->status = 206;
+						$response->statusText = 'Partial Content';
+						$response->headers['Content-Type'] = 'multipart/byteranges; boundary=' . $boundary;
+						$size = strlen($boundaryEnd);
+						foreach($ranges as &$range) {
+							$range[2] = "--$boundary\r\nContent-Type: {$contentType}\r\nContent-Range: bytes {$range[0]}-{$range[1]}/{$stat['size']}\r\n\r\n";
+							$size += strlen($range[2]) + $range[1] - $range[0] + 3;
+						}
+						unset($range);
+						$response->headSend($size);
+						
+						foreach($ranges as $range) {
+							if(!$response->send($range[2])) {
+								@fclose($fp);
+								return null;
+							}
+							$size = $range[1] - $range[0] + 1;
+							@fseek($fp, $range[0], SEEK_SET);
+							while($size > 0 && !@feof($fp)) {
+								if(($buf = @fread($fp, min(8192, $size))) === false) {
+									$request->isKeepAlive = false;
+									@fclose($fp);
+									return null;
+								} else {
+									if(!$response->send($buf)) {
+										@fclose($fp);
+										return null;
+									}
+									$size -= strlen($buf);
+								}
+							}
+							if(!$response->send("\r\n")) {
+								@fclose($fp);
+								return null;
+							}
+						}
+						
+						$response->send($boundaryEnd);
+					} else {
+						$size = $ranges[0][1] - $ranges[0][0] + 1;
+						if($size === $stat['size']) goto all;
+						$response->status = 206;
+						$response->statusText = 'Partial Content';
+						$response->headers['Content-Range'] = "bytes {$ranges[0][0]}-$ranges[0][1]/{$stat['size']}";
+						$response->headSend($size);
+						fseek($fp, $ranges[0][0], SEEK_SET);
+						while($size > 0 && !@feof($fp)) {
+							if(($buf = @fread($fp, min($size, 8192))) === false) {
+								$request->isKeepAlive = false;
+								break;
+							} else {
+								if(!$response->send($buf)) break;
+								$size -= strlen($buf);
+							}
+						}
+					}
+					@fclose($fp);
+					return null;
+				}
+			}
+
+		all:
+			$response->headSend($stat['size']);
+			if($request->method === 'GET') {
+				while(!@feof($fp)) {
+					if(($buf = @fread($fp, 8192)) === false) {
+						$request->isKeepAlive = false;
+						break;
+					} else {
+						if(!$response->send($buf)) break;
+					}
 				}
 			}
 			@fclose($fp);
@@ -933,7 +1075,7 @@ class HttpRequest {
 						if($this->bodylen < 0) $this->bodylen = 0;
 						$this->mode = ($this->bodylen ? self::MODE_BODY : self::MODE_END);
 						
-						$this->isKeepAlive = ((isset($this->headers['Connection']) && !strcasecmp($this->headers['Connection'], 'keep-alive')) || (!isset($this->headers['Connection']) && !strcasecmp($this->protocol, 'HTTP/1.1')));
+						$this->isKeepAlive = (isset($this->headers['Connection']) && !strcasecmp($this->headers['Connection'], 'keep-alive'));
 
 						$args = $this->getHeadArgs($this->headers['Content-Type'] ?? '');
 						$this->bodytype = $args[0];
