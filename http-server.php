@@ -527,6 +527,18 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 			$response->headers['Sec-WebSocket-Accept'] = $secAccept;
 			$response->isWebSocket = true;
 			return null;
+		case '/setcookie':
+			$response->setCookie(
+				$request->get['name'] ?? 'test',
+				$request->get['value'] ?? null,
+				(int) ($request->get['expires'] ?? 0),
+				$request->get['path'] ?? '',
+				$request->get['domain'] ?? '',
+				!empty($request->get['secure']),
+				!empty($request->get['httponly']),
+				$request->get['samesite'] ?? ''
+			);
+			return null;
 		default:
 			if($request->isDav) {
 				$path = __DIR__ . $request->path;
@@ -796,6 +808,7 @@ class HttpRequest {
 	public array $get = [];
 
 	public array $headers = [];
+	public array $cookies = [];
 	public array $post = [];
 	public array $files = [];
 	
@@ -922,10 +935,22 @@ class HttpRequest {
 						
 						$this->isKeepAlive = ((isset($this->headers['Connection']) && !strcasecmp($this->headers['Connection'], 'keep-alive')) || (!isset($this->headers['Connection']) && !strcasecmp($this->protocol, 'HTTP/1.1')));
 
-						$args = $this->get_head_args($this->headers['Content-Type'] ?? '');
+						$args = $this->getHeadArgs($this->headers['Content-Type'] ?? '');
 						$this->bodytype = $args[0];
 						unset($args[0]);
 						$this->bodyargs = $args;
+						
+						if(!empty($this->headers['Cookie'])) {
+							$cookies = (array) $this->headers['Cookie'];
+							foreach($cookies as $cookie) {
+								if(($cookie = preg_split('/;\s+/', $cookie, -1, PREG_SPLIT_NO_EMPTY)) !== false) {
+									foreach($cookie as $_cookie) {
+										@list($name, $value) = explode('=', $_cookie, 2);
+										$this->cookies[$name] = urldecode($value);
+									}
+								}
+							}
+						}
 						
 						if(($onBody = $this->onBody) !== null && !$onBody($this)) {
 							return null;
@@ -999,7 +1024,7 @@ class HttpRequest {
 										$this->formmode = self::FORM_MODE_VALUE;
 										$i += 2;
 										
-										$this->formargs = $this->get_head_args($this->formheaders['Content-Disposition']);
+										$this->formargs = $this->getHeadArgs($this->formheaders['Content-Disposition']);
 										if($this->formargs[0] !== 'form-data') {
 											$this->buf = null;
 											return 0;
@@ -1104,7 +1129,7 @@ class HttpRequest {
 		return $this->mode === self::MODE_END;
 	}
 	
-	public function get_head_args($head) {
+	public function getHeadArgs($head): array {
 		@list($arg0, $args) = preg_split('/;\s*/', $head, 2);
 		$ret = [$arg0];
 		$n = preg_match_all('/([^\=]+)\=("([^"]*)"|\'([^\']*)\'|([^;]*));?\s*/', $args, $matches);
@@ -1115,7 +1140,7 @@ class HttpRequest {
 		return $ret;
 	}
 	
-	private function send(string $data) {
+	private function send(string $data): bool {
 		loop:
 		$n = strlen($data);
 		if($n === 0) return true;
@@ -1152,7 +1177,7 @@ class HttpResponse {
 		$this->statusText = $statusText;
 	}
 	
-	public function headSend(int $bodyLen = 0) {
+	public function headSend(int $bodyLen = 0): bool {
 		if($this->isHeadSent) return true;
 		$this->isHeadSent = true;
 		
@@ -1163,7 +1188,7 @@ class HttpResponse {
 			$this->isChunked = true;
 		}
 
-		$this->headers['Date'] = gmdate('l d F Y H:i:s') . ' GMT';
+		$this->headers['Date'] = gmdate('D, d-M-Y H:i:s T');
 
 		ob_start();
 		ob_implicit_flush(false);
@@ -1187,7 +1212,32 @@ class HttpResponse {
 		$this->headers['Content-Type'] = $type;
 	}
 	
-	public function write(string $data) {
+	public function setCookie(string $name, ?string $value, int $expires = 0, string $path = '', string $domain = '', bool $secure = false, bool $httponly = false, string $samesite = '') {
+		$this->setRawCookie($name, $value === null ? null : urlencode($value), $expires, $path, $domain, $secure, $httponly, $samesite);
+	}
+	
+	public function setRawCookie(string $name, ?string $value, int $expires = 0, string $path = '', string $domain = '', bool $secure = false, bool $httponly = false, string $samesite = '') {
+		if($value === null || $value === '') {
+			$expire = gmdate('D, d-M-Y H:i:s T', 0);
+			$cookie = "$name=deleted; expires=$expire; Max-Age=0";
+		} else {
+			$cookie = "$name=$value";
+			if($expires > 0) {
+				$cookie .= '; expires=' . gmdate('D, d-M-Y H:i:s T', $expires);
+				$diff = $expires - time();
+				if($diff < 0) $diff = 0;
+				$cookie .= "; Max-Age=$diff";
+			}
+			if($path !== '') $cookie .= "; path=$path";
+			if($domain !== '') $cookie .= "; domain=$domain";
+			if($secure) $cookie .= "; secure";
+			if($httponly) $cookie .= "; HttpOnly";
+			if($samesite !== '') $cookie .= "; SameSite=$samesite";
+		}
+		$this->headers['Set-Cookie'][] = $cookie;
+	}
+	
+	public function write(string $data): bool {
 		if(!$this->headSend(-1)) return false;
 		
 		$n = strlen($data);
@@ -1200,7 +1250,7 @@ class HttpResponse {
 		return $this->send($data);
 	}
 	
-	public function end(?string $data = null) {
+	public function end(?string $data = null): bool {
 		if($this->isEnd) return true;
 		$this->isEnd = true;
 		
@@ -1218,7 +1268,7 @@ class HttpResponse {
 		return $data === null || $this->send($data);
 	}
 	
-	public function send(string $data) {
+	public function send(string $data): bool {
 		loop:
 		$n = strlen($data);
 		if($n === 0) return true;

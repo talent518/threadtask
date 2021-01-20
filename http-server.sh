@@ -46,6 +46,7 @@ function test_cases() {
 	request HELLO "GET /hello-json HTTP/1.0\r\n\r\n"
 	request NULL "GET /null HTTP/1.0\r\n\r\n"
 	request CHUNKED "GET /chunked HTTP/1.0\r\n\r\n"
+	request COOKIE "GET /setcookie?name=test&value=123&expires=1&path=/&domain=127.0.0.1&secure=0&httponly=1&samesite=127.0.0.1,localhost HTTP/1.0\r\n\r\n"
 	request GETREQ "GET /request-info?json HTTP/1.0\r\n\r\n"
 	request PUTREQ "PUT /request-info?json HTTP/1.0\r\nContent-Length: $size\r\n\r\n" '' $file
 	request OPTDAV "OPTIONS /dav HTTP/1.0\r\n\r\n"
