@@ -1855,6 +1855,93 @@ static PHP_FUNCTION(ts_var_set) {
 	ts_hash_table_wr_unlock(ts_ht);
 }
 
+ZEND_BEGIN_ARG_INFO(arginfo_ts_var_push, 2)
+ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 0)
+ZEND_ARG_INFO(0, val)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(ts_var_push) {
+	zval *zv;
+	zval *args;
+	int i, argc, n = 0;
+	
+	ts_hash_table_t *ts_ht;
+	value_t v;
+
+	ZEND_PARSE_PARAMETERS_START(2, -1)
+		Z_PARAM_RESOURCE(zv)
+		Z_PARAM_VARIADIC('+', args, argc)
+	ZEND_PARSE_PARAMETERS_END();
+	
+	if ((ts_ht = (ts_hash_table_t *) zend_fetch_resource_ex(zv, PHP_TS_VAR_DESCRIPTOR, le_ts_var_descriptor)) == NULL) {
+		RETURN_FALSE;
+	}
+	
+	ts_hash_table_wr_lock(ts_ht);
+	for(i=0; i<argc; i++) {
+		zval_to_value(&args[i], &v);
+		if(hash_table_next_index_insert(&ts_ht->ht, &v, NULL) == SUCCESS) n++;
+		else hash_table_value_free(&v);
+	}
+	ts_hash_table_wr_unlock(ts_ht);
+
+	RETURN_LONG(n);
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_ts_var_pop, 1)
+ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(ts_var_pop) {
+	zval *zv;
+	zval *val;
+	
+	ts_hash_table_t *ts_ht;
+	value_t v;
+
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_RESOURCE(zv)
+	ZEND_PARSE_PARAMETERS_END();
+	
+	if ((ts_ht = (ts_hash_table_t *) zend_fetch_resource_ex(zv, PHP_TS_VAR_DESCRIPTOR, le_ts_var_descriptor)) == NULL) {
+		RETURN_FALSE;
+	}
+	
+	ts_hash_table_wr_lock(ts_ht);
+	if(ts_ht->ht.pListTail) {
+		value_to_zval(&ts_ht->ht.pListTail->value, return_value);
+		hash_table_bucket_delete(&ts_ht->ht, ts_ht->ht.pListTail);
+	}
+	ts_hash_table_wr_unlock(ts_ht);
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_ts_var_shift, 1)
+ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(ts_var_shift) {
+	zval *zv;
+	zval *val;
+	
+	ts_hash_table_t *ts_ht;
+	value_t v;
+
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_RESOURCE(zv)
+	ZEND_PARSE_PARAMETERS_END();
+	
+	if ((ts_ht = (ts_hash_table_t *) zend_fetch_resource_ex(zv, PHP_TS_VAR_DESCRIPTOR, le_ts_var_descriptor)) == NULL) {
+		RETURN_FALSE;
+	}
+	
+	ts_hash_table_wr_lock(ts_ht);
+	if(ts_ht->ht.pListHead) {
+		value_to_zval(&ts_ht->ht.pListHead->value, return_value);
+		hash_table_bucket_delete(&ts_ht->ht, ts_ht->ht.pListHead);
+	}
+	ts_hash_table_wr_unlock(ts_ht);
+}
+
 ZEND_BEGIN_ARG_INFO(arginfo_ts_var_get, 1)
 ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 0)
 ZEND_ARG_INFO(0, key)
@@ -2062,6 +2149,34 @@ static PHP_FUNCTION(ts_var_clean) {
 	RETVAL_LONG(hash_table_num_elements(&ts_ht->ht));
 	if(expire == 0) hash_table_clean(&ts_ht->ht);
 	ts_hash_table_wr_unlock(ts_ht);
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_ts_var_reindex, 1)
+ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 0)
+ZEND_ARG_TYPE_INFO(0, only_integer_keys, _IS_BOOL, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(ts_var_reindex) {
+	zval *zv;
+	zend_bool only_integer_keys = 0;
+	
+	ts_hash_table_t *ts_ht;
+
+	ZEND_PARSE_PARAMETERS_START(1, 2)
+		Z_PARAM_RESOURCE(zv)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_BOOL(only_integer_keys)
+	ZEND_PARSE_PARAMETERS_END();
+	
+	if ((ts_ht = (ts_hash_table_t *) zend_fetch_resource_ex(zv, PHP_TS_VAR_DESCRIPTOR, le_ts_var_descriptor)) == NULL) {
+		RETURN_FALSE;
+	}
+	
+	ts_hash_table_wr_lock(ts_ht);
+	hash_table_reindex(&ts_ht->ht, only_integer_keys);
+	ts_hash_table_wr_unlock(ts_ht);
+
+	RETURN_TRUE;
 }
 
 // ===========================================================================================================
@@ -2300,11 +2415,15 @@ static const zend_function_entry ext_functions[] = {
 	PHP_FE(ts_var_exists, arginfo_ts_var_exists)
 	PHP_FE(ts_var_set, arginfo_ts_var_set)
 	PHP_FALIAS(ts_var_put, ts_var_set, arginfo_ts_var_set)
+	PHP_FE(ts_var_push, arginfo_ts_var_push)
+	PHP_FE(ts_var_pop, arginfo_ts_var_pop)
+	PHP_FE(ts_var_shift, arginfo_ts_var_shift)
 	PHP_FE(ts_var_get, arginfo_ts_var_get)
 	PHP_FE(ts_var_del, arginfo_ts_var_del)
 	PHP_FE(ts_var_inc, arginfo_ts_var_inc)
 	PHP_FE(ts_var_count, arginfo_ts_var_count)
 	PHP_FE(ts_var_clean, arginfo_ts_var_clean)
+	PHP_FE(ts_var_reindex, arginfo_ts_var_reindex)
 	
 	PHP_FE(socket_export_fd, arginfo_socket_export_fd)
 	PHP_FE(socket_import_fd, arginfo_socket_import_fd)

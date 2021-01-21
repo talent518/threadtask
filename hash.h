@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <zend_types.h>
 
@@ -150,6 +151,37 @@ void hash_table_reindex(hash_table_t *ht, zend_bool only_integer_keys);
 
 ulong hash_table_func(const char *arKey, uint nKeyLength);
 
+static zend_always_inline void hash_table_bucket_delete(hash_table_t *ht, bucket_t *p) {
+	if (p->pLast) {
+		p->pLast->pNext = p->pNext;
+	} else {
+		ht->arBuckets[p->h & ht->nTableMask] = p->pNext;
+	}
+	if (p->pNext) {
+		p->pNext->pLast = p->pLast;
+	}
+	if (p->pListLast != NULL) {
+		p->pListLast->pListNext = p->pListNext;
+	} else {
+		/* Deleting the head of the list */
+		ht->pListHead = p->pListNext;
+	}
+	if (p->pListNext != NULL) {
+		p->pListNext->pListLast = p->pListLast;
+	} else {
+		/* Deleting the tail of the list */
+		ht->pListTail = p->pListLast;
+	}
+	if (ht->pInternalPointer == p) {
+		ht->pInternalPointer = p->pListNext;
+	}
+	ht->nNumOfElements--;
+	if (ht->pDestructor) {
+		ht->pDestructor(&p->value);
+	}
+	free(p);
+}
+
 // ===========================================================================================================
 
 #include <pthread.h>
@@ -218,6 +250,9 @@ static zend_always_inline void ts_hash_table_destroy_ex(ts_hash_table_t *ts_ht, 
 	pthread_mutex_lock(&ts_ht->lock);
 	if(--ts_ht->ref_count == 0) {
 		pthread_mutex_unlock(&ts_ht->lock);
+
+		if(ts_ht->fds[0] > 0) close(ts_ht->fds[0]);
+		if(ts_ht->fds[1] > 0) close(ts_ht->fds[1]);
 
 		pthread_mutex_destroy(&ts_ht->rlock);
 		pthread_mutex_destroy(&ts_ht->wlock);
