@@ -86,6 +86,9 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
   * $var: 由ts_var_declare函数返回的变量
 * 清理线程安全变量并返回元素个数：ts_var_clean(resource $var, int $expire = 0)
   * $var: 由ts_var_declare函数返回的变量
+* 重建线程安全变量索引：ts_var_reindex(resource $var, bool $only_integer_keys = false): bool
+  * $var: 由ts_var_declare函数返回的变量
+  * $only_integer_keys: 是否紧整数索引
 
 ### 常量
 * THREAD_TASK_NAME: string 任务名
