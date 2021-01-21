@@ -2,21 +2,24 @@
 <html lang="zh-cn">
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="referrer" content="origin" />
     <meta http-equiv="Cache-Control" content="no-transform" />
     <meta http-equiv="Cache-Control" content="no-siteapp" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <title>WebSocket Demo</title>
 	<style type="text/css">
+	body{margin:0;padding:0;}
+	*{box-sizing:border-box;}
 	#wrapper{font-size:14px;}
-	#wrapper>*{padding:5px;border:1px #ccc solid;}
+	#wrapper>*{display:block;margin:5px;padding:5px;border:1px #ccc solid;word-wrap:break-word;word-break:break-all;white-space:pre-wrap;}
 	#wrapper>p{border-color:#999;}
 	#wrapper b{margin-right:1em;}
-	#wrapper a{float:right;font-size:14px;}
-	textarea{border:1px #ccc solid;outline:none;vertical-align:bottom;}
+	#wrapper a{float:right;font-size:14px;text-decoration:none;}
+	form{margin:0 5px 5px;}
+	textarea{display:block;width:100%;margin:0 0 5px;border:1px #ccc solid;outline:none;vertical-align:bottom;}
 	textarea:focus{border-color:#999;}
-	button{padding:5px;outline:none;}
+	button{display:inline-block;padding:5px;outline:none;}
 	</style>
 </head>
 <body>
@@ -24,7 +27,7 @@
 	</div>
 	<div id="last"></div>
 	<form id="msgfrm">
-		<textarea name="msg" cols="80" rows="10"></textarea>
+		<textarea name="msg" rows="10"></textarea>
 		<button name="smt" type="submit" disabled="disabled">Send</button>
 		<button name="reconn" type="button" style="display:none;">Reconnect</button>
 		<button name="close" type="button" style="display:none;">Close</button>
