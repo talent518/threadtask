@@ -55,6 +55,37 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
   * $sockfd: int 来自socket_export_fd的返回的整型值
   * $addr: string 客户端IP地址
   * $port: int 客户端端口号
+* 声明线程安全的共享变量: ts_var_declare(string|int $varname, ?resource $var = null, bool $is_fd = false): resource|bool
+  * $varname: 变量名
+  * $var: 如果为空，则在share_var_中创建，否则在ts_var_declare创建的线程安全共享变量中创建
+  * $is_fd: 如果为true，则可以使用ts_var_fd()函数
+* 导出socket文件描述符的管道对（可使用sockets扩展中的函数进行操作）：ts_var_fd(resource $var, bool $is_write = false): socket|bool
+  * $var: 由ts_var_declare函数返回的变量
+  * $is_write: 是返回
+* 是否存在指定的共享变量：ts_var_exists(resource $var, string|int $key)
+  * $var: 由ts_var_declare函数返回的变量
+  * $key: 键名，可为字符串和整形
+* 向线程安全变量中存储数据：ts_var_set(resource $var, string|int|null $key, mixed $val, bool $expire = 0): bool
+  * $var: 由ts_var_declare函数返回的变量
+  * $key: 键名，可为字符串、整形或空，为空时把$val附加到最后
+  * $val: 值
+  * $expire: 过期时间戳，为0时永不过期
+* ts_var_put是ts_var_set的别名
+* 获取线程安全变量数据：ts_var_get(resource $var, string|int|null $key = null, bool $is_del = false): mixed
+  * $var: 由ts_var_declare函数返回的变量
+  * $key: 键名，可为字符串、整形或空，为空时返回$var中的所有变量
+  * $is_del: 是否删除该变量
+* 删除线程安全变量中的数据：ts_var_del(resource $var, string|int $key): bool
+  * $var: 由ts_var_declare函数返回的变量
+  * $key: 键名，可为字符串或整形
+* 自增线程安全变量并返回：ts_var_inc(resource $var, string|int|null $key, mixed $inc): mixed
+  * $var: 由ts_var_declare函数返回的变量
+  * $key: 键名，可为字符串或整形
+  * $inc: 相当于$var[$key] += $inc
+* 获取线程安全变量有多少个数据（与count函数类似）：ts_var_count(resource $var)
+  * $var: 由ts_var_declare函数返回的变量
+* 清理线程安全变量并返回元素个数：ts_var_clean(resource $var, int $expire = 0)
+  * $var: 由ts_var_declare函数返回的变量
 
 ### 常量
 * THREAD_TASK_NAME: string 任务名
@@ -65,6 +96,7 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
 * 简单任务控制: ./threadtask init.php
 * 等待任务完成: ./threadtask sem.php
 * 共享变量: ./threadtask var.php [threads [seconds [type]]]
+* 线程安全变量: ./threadtask var2.php [threads [seconds [type]]]
 * ini配置加载: ./threadtask ini.php demo.ini
   * SIGUSR1: 重启进程(restart)
   * SIGUSR2: 重载配置(reload)

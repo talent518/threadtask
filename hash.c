@@ -84,7 +84,8 @@ void hash_table_value_free(value_t *value) {
 		hash_table_destroy((hash_table_t*) value->ptr);
 		free(value->ptr);
 		break;
-	case PTR_T:
+	case TS_HT_T:
+		ts_hash_table_destroy((ts_hash_table_t*) value->ptr);
 		break;
 	default:
 		break;
