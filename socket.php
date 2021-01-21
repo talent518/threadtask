@@ -24,36 +24,32 @@ pcntl_signal(SIGUSR2, 'signal', false);
 if(defined('THREAD_TASK_NAME')) {
 	// echo THREAD_TASK_NAME . PHP_EOL;
 
+	$aptres = ts_var_declare('aptres', null, true);
+
 	if(strncmp(THREAD_TASK_NAME, 'accept', 6) == 0) {
 		$sock = socket_import_fd((int) $_SERVER['argv'][1]);
 		$flag = (bool) $_SERVER['argv'][2];
-		if(!$flag) $wfd = socket_import_fd((int) $_SERVER['argv'][3]);
+		$wfd = ts_var_fd($aptres, true);
 
 		while($running && ($fd = @socket_accept($sock)) !== false) {
 			@socket_set_option($fd, SOL_SOCKET, SO_LINGER, ['l_onoff'=>1, 'l_linger'=>0]) or strerror('socket_set_option', false);
 			$i = share_var_inc('conns', 1);
 			$fd = socket_export_fd($fd, true);
-			share_var_set('accepts', $i, $fd);
+			ts_var_set($aptres, $i, $fd);
 			if($flag) create_task('read' . $i, __FILE__, [$fd,$i]);
-			else socket_write($wfd, pack('q', $i));
+			else socket_write($wfd, 'a');
 		}
 
 		socket_export_fd($sock, true); // skip close socket
-		if(!$flag) socket_export_fd($wfd, true); // skip close socket
+		socket_export_fd($wfd, true); // skip close socket
 
 		//echo THREAD_TASK_NAME . " Closed\n";
 	} elseif(empty($_SERVER['argv'][1])) {
-		$rfd = socket_import_fd((int) $_SERVER['argv'][2]);
+		$rfd = ts_var_fd($aptres);
 		while($running) {
-			if(($n = @socket_read($rfd, 8)) === false) continue;
-			if(strlen($n) !== 8) {
-				printf("ERR: %d\n", strlen($n));
-				continue;
-			}
+			if(!@socket_read($rfd, 1)) continue;
 
-			$i = unpack('q', $n)[1];
-
-			$fd = share_var_get_and_del('accepts', $i);
+			$fd = ts_var_shift($aptres);
 
 			$str = THREAD_TASK_NAME . " $fd\n";
 			$fd = socket_import_fd($fd);
@@ -69,7 +65,7 @@ if(defined('THREAD_TASK_NAME')) {
 	} else {
 		$fd = (int) $_SERVER['argv'][1];
 		$i = (int) $_SERVER['argv'][2];
-		share_var_del('accepts', $i);
+		ts_var_del($aptres, $i);
 
 		$str = THREAD_TASK_NAME . " $fd\n";
 		$fd = socket_import_fd($fd);
@@ -83,14 +79,6 @@ if(defined('THREAD_TASK_NAME')) {
 	$port = ($_SERVER['argv'][2]??5000);
 	$flag = ($_SERVER['argv'][3]??0);
 
-	if($flag) {
-		$rfd = $wfd = 0;
-	} else {
-		socket_create_pair(AF_UNIX, SOCK_STREAM, 0, $pairs) or strerror('socket_set_option');
-		$rfd = socket_export_fd($pairs[0]);
-		$wfd = socket_export_fd($pairs[1]);
-	}
-
 	($sock = @socket_create(AF_INET, SOCK_STREAM, SOL_TCP)) or strerror('socket_create');
 	@socket_set_option($sock, SOL_SOCKET, SO_REUSEADDR, 1) or strerror('socket_set_option', false);
 	@socket_bind($sock, $host, (int)$port) or strerror('socket_bind');
@@ -101,16 +89,16 @@ if(defined('THREAD_TASK_NAME')) {
 	echo "Server listening on $host:$port\n";
 
 	share_var_init(3);
-	if(!$flag) {
-		share_var_set('accepts', []);
-		for($i=0; $i<56; $i++) create_task('read' . $i, __FILE__, [0,$rfd]);
-	}
-	for($i=0; $i<8; $i++) create_task('accept' . $i, __FILE__, [$fd,$flag,$wfd]);
+
+	$aptres = ts_var_declare('aptres', null, true);
+	if(!$flag) for($i=0; $i<56; $i++) create_task('read' . $i, __FILE__, []);
+	for($i=0; $i<8; $i++) create_task('accept' . $i, __FILE__, [$fd,$flag]);
+
 	$n = 0;
 	while($running) {
 		sleep(1);
 		$n2 = share_var_get('conns');
-		$n3 = share_var_count('accepts');
+		$n3 = ts_var_count($aptres);
 		$n = $n2 - $n;
 		echo "$n connects, $n3 accepts\n";
 		$n = $n2;
@@ -120,7 +108,7 @@ if(defined('THREAD_TASK_NAME')) {
 
 	task_wait($exitSig?:SIGINT);
 
-	$accepts = share_var_get('accepts');
+	$accepts = ts_var_get($aptres);
 
 	foreach($accepts as $i=>$fd) {
 		echo $str = "unread: $i=>$fd\n";
@@ -134,13 +122,6 @@ if(defined('THREAD_TASK_NAME')) {
 
 	@socket_shutdown($sock) or strerror('socket_shutdown');
 	@socket_close($sock);
-
-	if(!$flag) {
-		foreach($pairs as $fd) {
-			@socket_shutdown($fd) or strerror('socket_shutdown', false);
-			@socket_close($fd);
-		}
-	}
 
 	// echo json_encode(share_var_get(), JSON_PRETTY_PRINT);
 
