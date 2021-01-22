@@ -1897,7 +1897,6 @@ static PHP_FUNCTION(ts_var_pop) {
 	zval *key = NULL;
 	
 	ts_hash_table_t *ts_ht;
-	value_t v;
 
 	ZEND_PARSE_PARAMETERS_START(1, 2)
 		Z_PARAM_RESOURCE(zv)
@@ -1934,7 +1933,6 @@ static PHP_FUNCTION(ts_var_shift) {
 	zval *key = NULL;
 	
 	ts_hash_table_t *ts_ht;
-	value_t v;
 
 	ZEND_PARSE_PARAMETERS_START(1, 2)
 		Z_PARAM_RESOURCE(zv)

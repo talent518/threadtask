@@ -212,13 +212,13 @@ static zend_always_inline int _ts_hash_table_init(ts_hash_table_t *ts_ht, uint n
 
 static zend_always_inline void ts_hash_table_rd_lock(ts_hash_table_t *ts_ht) {
 	pthread_mutex_lock(&ts_ht->rlock);
-	if(++ts_ht->ref_count == 1) pthread_mutex_lock(&ts_ht->wlock);
+	if(++ts_ht->rd_count == 1) pthread_mutex_lock(&ts_ht->wlock);
 	pthread_mutex_unlock(&ts_ht->rlock);
 }
 
 static zend_always_inline void ts_hash_table_rd_unlock(ts_hash_table_t *ts_ht) {
 	pthread_mutex_lock(&ts_ht->rlock);
-	if(--ts_ht->ref_count == 0) pthread_mutex_unlock(&ts_ht->wlock);
+	if(--ts_ht->rd_count == 0) pthread_mutex_unlock(&ts_ht->wlock);
 	pthread_mutex_unlock(&ts_ht->rlock);
 }
 
@@ -263,6 +263,6 @@ static zend_always_inline void ts_hash_table_destroy_ex(ts_hash_table_t *ts_ht, 
 	} else pthread_mutex_unlock(&ts_ht->lock);
 }
 
-#define ts_hash_table_destroy(ts_ht) ts_hash_table_destroy_ex(ts_ht, 0)
+#define ts_hash_table_destroy(ts_ht) ts_hash_table_destroy_ex(ts_ht, 1)
 
 #endif							/* _HASH_H */
