@@ -31,8 +31,8 @@ define('IS_TO_FILE', ($env = getenv('IS_TO_FILE')) === false ? true : !empty($en
 if(defined('THREAD_TASK_NAME')) {
 	// echo THREAD_TASK_NAME . PHP_EOL;
 
-	$wsres = ts_var_declare('wsres', null, true);
 	$aptres = ts_var_declare('aptres', null, true);
+	$wsres = ts_var_declare('wsres', null, true);
 
 	if(THREAD_TASK_NAME === 'ws') {
 		$rfd = ts_var_fd($wsres);
@@ -362,7 +362,7 @@ if(defined('THREAD_TASK_NAME')) {
 
 	share_var_init(3);
 
-	$aptres = ts_var_declare('apres', null, true);
+	$aptres = ts_var_declare('aptres', null, true);
 	$wsres = ts_var_declare('wsres', null, true);
 
 	create_task('ws', __FILE__, []);
