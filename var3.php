@@ -75,15 +75,20 @@ debug('count.var', ts_var_count($var));
 
 debug('vars', share_var_get());
 
-debug('push.var', ts_var_push($var, 'first', 1, 2, 3, 'last'));
-debug('get.var', ts_var_get($var));
-debug('pop.var', ts_var_pop($var));
-debug('shift.var', ts_var_shift($var));
-debug('get.var', ts_var_get($var));
-debug('set.var', ts_var_set($var, 'a', 'a'));
-debug('get.var', ts_var_get($var));
-debug('reindex.var', ts_var_reindex($var));
-debug('get.var', ts_var_get($var));
+$queue = ts_var_declare('queue');
+debug('push.queue', ts_var_push($queue, 'first', 1, 2, 3, 'last'));
+debug('get.queue', ts_var_get($queue));
+debug('pop.queue', ts_var_pop($queue, $key));
+debug('pop.queue.key', $key);
+debug('shift.queue', ts_var_shift($queue, $key));
+debug('shift.queue.key', $key);
+debug('get.queue', ts_var_get($queue));
+debug('set.queue', ts_var_set($queue, 'key', 'val'));
+debug('pop.queue', ts_var_pop($queue, $key));
+debug('pop.queue.key', $key);
+debug('get.queue', ts_var_get($queue));
+debug('reindex.queue', ts_var_reindex($queue));
+debug('get.queue', ts_var_get($queue));
 
 share_var_destory();
 

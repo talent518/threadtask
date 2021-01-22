@@ -406,7 +406,7 @@ static PHP_FUNCTION(create_task) {
 		Z_PARAM_OPTIONAL
 		Z_PARAM_STRING(logfile, logfile_len)
 		Z_PARAM_STRING(logmode, logmode_len)
-		Z_PARAM_ZVAL_EX2(res, 0, 1, 0)
+		Z_PARAM_ZVAL(res)
 	ZEND_PARSE_PARAMETERS_END();
 
 	if(access(filename, F_OK|R_OK) != 0) {
@@ -437,9 +437,8 @@ static PHP_FUNCTION(create_task) {
 		task->sem = (sem_t*) malloc(sizeof(sem_t));
 		sem_init(task->sem, 0, 0);
 		
-		zval_ptr_dtor(res);
-		ZEND_REGISTER_RESOURCE(res, task->sem, le_threadtask_descriptor);
-
+		ZEND_TRY_ASSIGN_REF_RES(res, zend_register_resource(task->sem, le_threadtask_descriptor));
+		
 		dprintf("RESOURCE %p register\n", task->sem);
 	}
 
@@ -1668,7 +1667,7 @@ static PHP_FUNCTION(share_var_destory)
 
 ZEND_BEGIN_ARG_INFO(arginfo_ts_var_declare, 0)
 ZEND_ARG_INFO(0, key)
-ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 0)
+ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 1)
 ZEND_ARG_TYPE_INFO(0, is_fd, _IS_BOOL, 0)
 ZEND_END_ARG_INFO()
 
@@ -1890,17 +1889,20 @@ static PHP_FUNCTION(ts_var_push) {
 
 ZEND_BEGIN_ARG_INFO(arginfo_ts_var_pop, 1)
 ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 0)
+ZEND_ARG_INFO(1, key)
 ZEND_END_ARG_INFO()
 
 static PHP_FUNCTION(ts_var_pop) {
 	zval *zv;
-	zval *val;
+	zval *key = NULL;
 	
 	ts_hash_table_t *ts_ht;
 	value_t v;
 
-	ZEND_PARSE_PARAMETERS_START(1, 1)
+	ZEND_PARSE_PARAMETERS_START(1, 2)
 		Z_PARAM_RESOURCE(zv)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_ZVAL(key)
 	ZEND_PARSE_PARAMETERS_END();
 	
 	if ((ts_ht = (ts_hash_table_t *) zend_fetch_resource_ex(zv, PHP_TS_VAR_DESCRIPTOR, le_ts_var_descriptor)) == NULL) {
@@ -1910,6 +1912,13 @@ static PHP_FUNCTION(ts_var_pop) {
 	ts_hash_table_wr_lock(ts_ht);
 	if(ts_ht->ht.pListTail) {
 		value_to_zval(&ts_ht->ht.pListTail->value, return_value);
+		if(key) {
+			if(ts_ht->ht.pListTail->nKeyLength == 0) {
+				ZEND_TRY_ASSIGN_REF_LONG(key, ts_ht->ht.pListTail->h);
+			} else {
+				ZEND_TRY_ASSIGN_REF_STRINGL(key, ts_ht->ht.pListTail->arKey, ts_ht->ht.pListTail->nKeyLength);
+			}
+		}
 		hash_table_bucket_delete(&ts_ht->ht, ts_ht->ht.pListTail);
 	}
 	ts_hash_table_wr_unlock(ts_ht);
@@ -1917,17 +1926,20 @@ static PHP_FUNCTION(ts_var_pop) {
 
 ZEND_BEGIN_ARG_INFO(arginfo_ts_var_shift, 1)
 ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 0)
+ZEND_ARG_INFO(1, key)
 ZEND_END_ARG_INFO()
 
 static PHP_FUNCTION(ts_var_shift) {
 	zval *zv;
-	zval *val;
+	zval *key = NULL;
 	
 	ts_hash_table_t *ts_ht;
 	value_t v;
 
-	ZEND_PARSE_PARAMETERS_START(1, 1)
+	ZEND_PARSE_PARAMETERS_START(1, 2)
 		Z_PARAM_RESOURCE(zv)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_ZVAL(key)
 	ZEND_PARSE_PARAMETERS_END();
 	
 	if ((ts_ht = (ts_hash_table_t *) zend_fetch_resource_ex(zv, PHP_TS_VAR_DESCRIPTOR, le_ts_var_descriptor)) == NULL) {
@@ -1937,6 +1949,13 @@ static PHP_FUNCTION(ts_var_shift) {
 	ts_hash_table_wr_lock(ts_ht);
 	if(ts_ht->ht.pListHead) {
 		value_to_zval(&ts_ht->ht.pListHead->value, return_value);
+		if(key) {
+			if(ts_ht->ht.pListHead->nKeyLength == 0) {
+				ZEND_TRY_ASSIGN_REF_LONG(key, ts_ht->ht.pListHead->h);
+			} else {
+				ZEND_TRY_ASSIGN_REF_STRINGL(key, ts_ht->ht.pListHead->arKey, ts_ht->ht.pListHead->nKeyLength);
+			}
+		}
 		hash_table_bucket_delete(&ts_ht->ht, ts_ht->ht.pListHead);
 	}
 	ts_hash_table_wr_unlock(ts_ht);
