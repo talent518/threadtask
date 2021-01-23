@@ -58,7 +58,7 @@ if(defined('THREAD_TASK_NAME')) {
 				ts_var_get($var, 'set.del', true) or ts_var_inc($stat, FAILURE, 1);
 				break;
 			case 7:
-				ts_var_set($var, 'expire', $time + 1) or ts_var_inc($stat, FAILURE, 1);
+				ts_var_set($var, 'expire', random_bytes(16), $time + 1) or ts_var_inc($stat, FAILURE, 1);
 				break;
 			case 8:
 				ts_var_exists($var, 'expire') or ($time = time() + 1);
@@ -72,10 +72,10 @@ if(defined('THREAD_TASK_NAME')) {
 			case 13:
 				ts_var_inc($var, rand(0, 99), 1);
 				break;
-			case 15:
+			case 14:
 				ts_var_del($var, rand(0, 99)) or ts_var_inc($stat, FAILURE, 1);
 				break;
-			case 14:
+			case 15:
 				$time % 10 === 0 and ts_var_reindex($var);
 				break;
 		}
@@ -100,6 +100,6 @@ if(defined('THREAD_TASK_NAME')) {
 
 	task_wait($exitSig?:SIGINT);
 
-	$n = ts_var_clean($clean);
+	$n = ts_var_clean($vars);
 	echo "vars: $n\n";
 }
