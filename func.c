@@ -53,6 +53,8 @@ static long le_threadtask_descriptor;
 static long le_ts_var_descriptor;
 #define PHP_TS_VAR_DESCRIPTOR "ts_var_t"
 
+static ts_hash_table_t ts_var;
+
 typedef struct _php_threadtask_globals_struct {
 	char strftime[20];
 } php_threadtask_globals_struct;
@@ -131,6 +133,7 @@ void thread_init() {
 	pthread_key_create(&pkey, NULL);
 	pthread_setspecific(pkey, NULL);
 
+	ts_hash_table_init(&ts_var, 2);
 	thread_sigmask();
 
 	mthread = pthread_self();
@@ -146,6 +149,8 @@ void thread_destroy() {
 		taskn = NULL;
 	}
 	
+	ts_hash_table_destroy_ex(&ts_var, 1);
+
 	pthread_key_delete(pkey);
 	pthread_cond_destroy(&ncond);
 	pthread_mutex_destroy(&nlock);
@@ -1674,6 +1679,7 @@ ZEND_END_ARG_INFO()
 static PHP_FUNCTION(ts_var_declare) {
 	zend_string *key = NULL;
 	zend_long index = 0;
+	zend_bool is_null = 0;
 	zval *zv = NULL;
 	zend_bool is_fd = 0;
 
@@ -1681,7 +1687,7 @@ static PHP_FUNCTION(ts_var_declare) {
 	value_t v = {.expire=0};
 
 	ZEND_PARSE_PARAMETERS_START(1, 3)
-		Z_PARAM_STR_OR_LONG(key, index);
+		Z_PARAM_STR_OR_LONG_OR_NULL(key, index, is_null);
 		Z_PARAM_OPTIONAL
 		Z_PARAM_RESOURCE_OR_NULL(zv)
 		Z_PARAM_BOOL(is_fd)
@@ -1691,7 +1697,15 @@ static PHP_FUNCTION(ts_var_declare) {
 		if ((ts_ht = (ts_hash_table_t *) zend_fetch_resource_ex(zv, PHP_TS_VAR_DESCRIPTOR, le_ts_var_descriptor)) == NULL) {
 			RETURN_FALSE;
 		}
-		
+	} else {
+		ts_ht = &ts_var;
+	}
+
+	if(is_null) {
+		ts_hash_table_rd_lock(ts_ht);
+		ts_hash_table_ref(ts_ht);
+		ts_hash_table_rd_unlock(ts_ht);
+	} else {
 		ts_hash_table_rd_lock(ts_ht);
 		if(key) {
 			if(hash_table_find(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), &v) == FAILURE || v.type != TS_HT_T) {
@@ -1718,28 +1732,10 @@ static PHP_FUNCTION(ts_var_declare) {
 		}
 		ts_hash_table_ref(v.ptr);
 		ts_hash_table_rd_unlock(ts_ht);
-	} else {
-		SHARE_VAR_WLOCK();
-		if(key) {
-			if(hash_table_find(share_var_ht, ZSTR_VAL(key), ZSTR_LEN(key), &v) == FAILURE || v.type != TS_HT_T) {
-				v.type = TS_HT_T;
-				v.ptr = (ts_hash_table_t *) malloc(sizeof(ts_hash_table_t));
-				ts_hash_table_init(v.ptr, 2);
-				hash_table_update(share_var_ht, ZSTR_VAL(key), ZSTR_LEN(key), &v, NULL);
-			}
-		} else {
-			if(hash_table_index_find(share_var_ht, index, &v) == FAILURE || v.type != TS_HT_T) {
-				v.type = TS_HT_T;
-				v.ptr = (ts_hash_table_t *) malloc(sizeof(ts_hash_table_t));
-				ts_hash_table_init(v.ptr, 2);
-				hash_table_index_update(share_var_ht, index, &v, NULL);
-			}
-		}
-		ts_hash_table_ref(v.ptr);
-		SHARE_VAR_WUNLOCK();
+		
+		ts_ht = (ts_hash_table_t*) v.ptr;
 	}
-	
-	ts_ht = (ts_hash_table_t*) v.ptr;
+
 	if(is_fd) {
 		ts_hash_table_lock(ts_ht);
 		if(!ts_ht->fds[0] && !ts_ht->fds[1] && socketpair(AF_UNIX, SOCK_STREAM, 0, ts_ht->fds) != 0) {
@@ -1748,7 +1744,7 @@ static PHP_FUNCTION(ts_var_declare) {
 		}
 		ts_hash_table_unlock(ts_ht);
 	}
-	
+
 	RETURN_RES(zend_register_resource(ts_ht, le_ts_var_descriptor));
 }
 

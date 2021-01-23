@@ -55,9 +55,10 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
   * $sockfd: int 来自socket_export_fd的返回的整型值
   * $addr: string 客户端IP地址
   * $port: int 客户端端口号
-* 声明线程安全的共享变量: ts_var_declare(string|int $varname, ?resource $var = null, bool $is_fd = false): resource|bool
-  * $varname: 变量名
-  * $var: 如果为空，则在share_var_中创建，否则在ts_var_declare创建的线程安全共享变量中创建
+
+* 声明线程安全的共享变量: ts_var_declare(string|int|null $varname, ?resource $var = null, bool $is_fd = false): resource|bool
+  * $varname: 变量名，为空则引用$var
+  * $var: 如果为空，则为根变量
   * $is_fd: 如果为true，则可以使用ts_var_fd()函数
 * 导出socket文件描述符的管道对（可使用sockets扩展中的函数进行操作）：ts_var_fd(resource $var, bool $is_write = false): socket|bool
   * $var: 由ts_var_declare函数返回的变量
