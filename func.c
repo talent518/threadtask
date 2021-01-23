@@ -149,7 +149,7 @@ void thread_destroy() {
 		taskn = NULL;
 	}
 	
-	ts_hash_table_destroy_ex(&ts_var, 1);
+	ts_hash_table_destroy_ex(&ts_var, 0);
 
 	pthread_key_delete(pkey);
 	pthread_cond_destroy(&ncond);
