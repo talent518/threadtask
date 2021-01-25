@@ -23,7 +23,7 @@ $time = time();
 
 if(defined('THREAD_TASK_NAME')) {
 	while($running) {
-		switch(rand(0, 15)) {
+		switch(rand(0, 19)) {
 			case 0:
 				$fd = ts_var_declare('fd', $var, true);
 				$r = ts_var_fd($fd);
@@ -78,6 +78,17 @@ if(defined('THREAD_TASK_NAME')) {
 			case 15:
 				$time % 10 === 0 and ts_var_reindex($var);
 				break;
+			case 16:
+				ts_var_get($var);
+				break;
+			case 17:
+				ts_var_set($var, 0, rand());
+				break;
+			case 18:
+				ts_var_del($var, 0);
+				break;
+			case 19:
+				ts_var_get($var, null, true);
 		}
 		ts_var_inc($stat, SUCCESS, 1);
 	}
