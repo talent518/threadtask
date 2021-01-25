@@ -31,8 +31,8 @@ if(defined('THREAD_TASK_NAME')) {
 				if(!@socket_write($w, 'a') || !@socket_read($r, 1)) {
 					ts_var_inc($stat, FAILURE, 1);
 				}
-				socket_export_fd($r, true);
-				socket_export_fd($w, true);
+				$r and socket_export_fd($r, true);
+				$w and socket_export_fd($w, true);
 				unset($fd, $r, $w);
 				break;
 			case 1:
