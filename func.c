@@ -272,7 +272,9 @@ newtask:
 
 	dprintf("[%s] running\n", task->name);
 
+#if PHP_VERSION_ID >= 70400
 	CG(skip_shebang) = 1;
+#endif
 
 	zend_first_try {
 		if(realpath(task->argv[0], path) == NULL) {
@@ -411,7 +413,7 @@ static PHP_FUNCTION(create_task) {
 		Z_PARAM_OPTIONAL
 		Z_PARAM_STRING(logfile, logfile_len)
 		Z_PARAM_STRING(logmode, logmode_len)
-		Z_PARAM_ZVAL(res)
+		Z_PARAM_ZVAL_DEREF(res)
 	ZEND_PARSE_PARAMETERS_END();
 
 	if(access(filename, F_OK|R_OK) != 0) {
@@ -442,7 +444,8 @@ static PHP_FUNCTION(create_task) {
 		task->sem = (sem_t*) malloc(sizeof(sem_t));
 		sem_init(task->sem, 0, 0);
 		
-		ZEND_TRY_ASSIGN_REF_RES(res, zend_register_resource(task->sem, le_threadtask_descriptor));
+		zval_ptr_dtor(res);
+		ZVAL_RES(res, zend_register_resource(task->sem, le_threadtask_descriptor));
 		
 		dprintf("RESOURCE %p register\n", task->sem);
 	}
@@ -2044,7 +2047,7 @@ static PHP_FUNCTION(ts_var_pop) {
 	ZEND_PARSE_PARAMETERS_START(1, 2)
 		Z_PARAM_RESOURCE(zv)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(key)
+		Z_PARAM_ZVAL_DEREF(key)
 	ZEND_PARSE_PARAMETERS_END();
 	
 	if ((ts_ht = (ts_hash_table_t *) zend_fetch_resource_ex(zv, PHP_TS_VAR_DESCRIPTOR, le_ts_var_descriptor)) == NULL) {
@@ -2055,10 +2058,11 @@ static PHP_FUNCTION(ts_var_pop) {
 	if(ts_ht->ht.pListTail) {
 		value_to_zval_wr(&ts_ht->ht.pListTail->value, return_value);
 		if(key) {
+			zval_ptr_dtor(key);
 			if(ts_ht->ht.pListTail->nKeyLength == 0) {
-				ZEND_TRY_ASSIGN_REF_LONG(key, ts_ht->ht.pListTail->h);
+				ZVAL_LONG(key, ts_ht->ht.pListTail->h);
 			} else {
-				ZEND_TRY_ASSIGN_REF_STRINGL(key, ts_ht->ht.pListTail->arKey, ts_ht->ht.pListTail->nKeyLength);
+				ZVAL_STRINGL(key, ts_ht->ht.pListTail->arKey, ts_ht->ht.pListTail->nKeyLength);
 			}
 		}
 		hash_table_bucket_delete(&ts_ht->ht, ts_ht->ht.pListTail);
@@ -2080,7 +2084,7 @@ static PHP_FUNCTION(ts_var_shift) {
 	ZEND_PARSE_PARAMETERS_START(1, 2)
 		Z_PARAM_RESOURCE(zv)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_ZVAL(key)
+		Z_PARAM_ZVAL_DEREF(key)
 	ZEND_PARSE_PARAMETERS_END();
 	
 	if ((ts_ht = (ts_hash_table_t *) zend_fetch_resource_ex(zv, PHP_TS_VAR_DESCRIPTOR, le_ts_var_descriptor)) == NULL) {
@@ -2091,10 +2095,11 @@ static PHP_FUNCTION(ts_var_shift) {
 	if(ts_ht->ht.pListHead) {
 		value_to_zval_wr(&ts_ht->ht.pListHead->value, return_value);
 		if(key) {
+			zval_ptr_dtor(key);
 			if(ts_ht->ht.pListHead->nKeyLength == 0) {
-				ZEND_TRY_ASSIGN_REF_LONG(key, ts_ht->ht.pListHead->h);
+				ZVAL_LONG(key, ts_ht->ht.pListHead->h);
 			} else {
-				ZEND_TRY_ASSIGN_REF_STRINGL(key, ts_ht->ht.pListHead->arKey, ts_ht->ht.pListHead->nKeyLength);
+				ZVAL_STRINGL(key, ts_ht->ht.pListHead->arKey, ts_ht->ht.pListHead->nKeyLength);
 			}
 		}
 		hash_table_bucket_delete(&ts_ht->ht, ts_ht->ht.pListHead);
@@ -2496,16 +2501,18 @@ static PHP_FUNCTION(socket_accept_ex) {
 
 	ZEND_PARSE_PARAMETERS_START(3, 3)
 		Z_PARAM_LONG(sockfd)
-		Z_PARAM_ZVAL(addr)
-		Z_PARAM_ZVAL(port)
+		Z_PARAM_ZVAL_DEREF(addr)
+		Z_PARAM_ZVAL_DEREF(port)
 	ZEND_PARSE_PARAMETERS_END();
 	
 	sa = (struct sockaddr *) &sa_storage;
 	
 	fd = accept((int) sockfd, sa, &salen);
+
+	zval_ptr_dtor(addr);
+	zval_ptr_dtor(port);
+
 	if(fd == -1) {
-		zval_ptr_dtor(addr);
-		zval_ptr_dtor(port);
 		RETURN_FALSE;
 	}
 	
@@ -2516,23 +2523,23 @@ static PHP_FUNCTION(socket_accept_ex) {
 
 			inet_ntop(AF_INET6, &sin6->sin6_addr, addr6, INET6_ADDRSTRLEN);
 
-			ZEND_TRY_ASSIGN_REF_STRING(addr, addr6);
-			ZEND_TRY_ASSIGN_REF_LONG(port, htons(sin6->sin6_port));
+			ZVAL_STRING(addr, addr6);
+			ZVAL_LONG(port, htons(sin6->sin6_port));
 			break;
 #endif
 		case AF_INET:
 			sin = (struct sockaddr_in *) sa;
 			addr_string = inet_ntoa(sin->sin_addr);
 
-			ZEND_TRY_ASSIGN_REF_STRING(addr, addr_string);
-			ZEND_TRY_ASSIGN_REF_LONG(port, htons(sin->sin_port));
+			ZVAL_STRING(addr, addr_string);
+			ZVAL_LONG(port, htons(sin->sin_port));
 			break;
 
 		case AF_UNIX:
 			s_un = (struct sockaddr_un *) sa;
 
-			ZEND_TRY_ASSIGN_REF_STRING(addr, s_un->sun_path);
-			ZEND_TRY_ASSIGN_REF_LONG(port, 0);
+			ZVAL_STRING(addr, s_un->sun_path);
+			ZVAL_LONG(port, 0);
 			break;
 
 		default:

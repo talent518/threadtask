@@ -7,6 +7,13 @@
 #include <standard/php_var.h>
 #include "func.h"
 
+#ifndef ZEND_CONSTANT_SET_FLAGS
+	#define ZEND_CONSTANT_SET_FLAGS(z,c,n) do { \
+			(z)->flags = c; \
+			(z)->module_number = n; \
+		} while(0)
+#endif
+
 void cli_register_file_handles(void) {
 	php_stream *s_in, *s_out, *s_err;
 	php_stream_context *sc_in=NULL, *sc_out=NULL, *sc_err=NULL;
@@ -133,7 +140,9 @@ opts:
 
 	thread_running();
 
+#if PHP_VERSION_ID >= 70400
 	CG(skip_shebang) = 1;
+#endif
 
 	SG(request_info).path_translated = argv[optind];
 	
