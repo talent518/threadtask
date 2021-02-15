@@ -34,17 +34,31 @@ void php_thread_flush_handler(void *server_context);
 
 void socket_import_fd(int fd, zval *return_value);
 
+#if PHP_VERSION_ID < 70400
+static zend_always_inline void zend_stream_init_filename(zend_file_handle *handle, const char *filename) {
+	memset(handle, 0, sizeof(zend_file_handle));
+	handle->type = ZEND_HANDLE_FILENAME;
+	handle->filename = filename;
+}
+#endif
+
 #ifndef Z_PARAM_RESOURCE_OR_NULL
 	#define Z_PARAM_RESOURCE_OR_NULL(dest) \
 		Z_PARAM_RESOURCE_EX(dest, 1, 0)
 #endif
 
 #ifndef Z_PARAM_STR_OR_LONG_EX
+	#if PHP_VERSION_ID >= 70400
+		#define ERROR_CODE _error_code
+	#else
+		#define ERROR_CODE error_code
+	#endif
+
 	#define Z_PARAM_STR_OR_LONG_EX(dest_str, dest_long, is_null, allow_null) \
 		Z_PARAM_PROLOGUE(0, 0); \
 		if (UNEXPECTED(!zend_parse_arg_str_or_long(_arg, &dest_str, &dest_long, &is_null, allow_null))) { \
 			_expected_type = Z_EXPECTED_STRING; \
-			_error_code = ZPP_ERROR_WRONG_ARG; \
+			ERROR_CODE = ZPP_ERROR_WRONG_ARG; \
 			break; \
 		}
 
