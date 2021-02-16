@@ -47,6 +47,10 @@ static zend_always_inline void zend_stream_init_filename(zend_file_handle *handl
 		Z_PARAM_RESOURCE_EX(dest, 1, 0)
 #endif
 
+#ifndef Z_PARAM_ZVAL_DEREF
+	#define Z_PARAM_ZVAL_DEREF(dest) Z_PARAM_ZVAL_EX2(dest, 0, 1, 0)
+#endif
+
 #ifndef Z_PARAM_STR_OR_LONG_EX
 	#if PHP_VERSION_ID >= 70400
 		#define ERROR_CODE _error_code
