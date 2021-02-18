@@ -265,8 +265,6 @@ newtask:
 	SG(request_info).no_headers = 1;
 
 	zend_register_string_constant(ZEND_STRL("THREAD_TASK_NAME"), task->name, CONST_CS, PHP_USER_CONSTANT);
-	zend_register_long_constant(ZEND_STRL("THREAD_TASK_NUM"), maxthreads, CONST_CS, PHP_USER_CONSTANT);
-	zend_register_long_constant(ZEND_STRL("THREAD_TASK_DELAY"), delay, CONST_CS, PHP_USER_CONSTANT);
 
 	cli_register_file_handles();
 
@@ -636,6 +634,53 @@ static PHP_FUNCTION(task_set_run) {
 	ZEND_PARSE_PARAMETERS_END();
 	RETVAL_BOOL(isRun);
 	isRun = d;
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_task_get_num, 0)
+ZEND_ARG_INFO(0, is_max)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(task_get_num) {
+	zend_bool is_max = 0;
+	ZEND_PARSE_PARAMETERS_START(0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_BOOL(is_max)
+	ZEND_PARSE_PARAMETERS_END();
+
+	if(is_max) {
+		RETVAL_LONG(maxthreads);
+	} else {
+		pthread_mutex_lock(&nlock);
+		RETVAL_LONG(threads);
+		pthread_mutex_unlock(&nlock);
+	}
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_task_get_run, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(task_get_run) {
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	RETVAL_BOOL(isRun);
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_task_get_debug, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(task_get_debug) {
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	RETVAL_BOOL(isDebug);
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_task_get_delay, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(task_get_delay) {
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	RETVAL_LONG(delay);
 }
 
 // ===========================================================================================================
@@ -2556,11 +2601,16 @@ static const zend_function_entry ext_functions[] = {
 	ZEND_FE(task_join, arginfo_task_join)
 	ZEND_FE(task_is_run, arginfo_task_is_run)
 	ZEND_FE(task_wait, arginfo_task_wait)
+	ZEND_FE(task_get_delay, arginfo_task_get_delay)
 	ZEND_FE(task_set_delay, arginfo_task_set_delay)
+	ZEND_FE(task_get_num, arginfo_task_get_num)
+	PHP_FALIAS(task_get_threads, task_get_num, arginfo_task_get_num)
 	ZEND_FE(task_set_threads, arginfo_task_set_threads)
+	ZEND_FE(task_get_debug, arginfo_task_get_debug)
 	ZEND_FE(task_set_debug, arginfo_task_set_debug)
+	ZEND_FE(task_get_run, arginfo_task_get_run)
 	ZEND_FE(task_set_run, arginfo_task_set_run)
-	
+
 	PHP_FE(share_var_init, arginfo_share_var_init)
 	PHP_FE(share_var_exists, arginfo_share_var_exists)
 	PHP_FE(share_var_get, arginfo_share_var_get)
