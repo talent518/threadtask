@@ -19,6 +19,7 @@ define('FAILURE', 1);
 $vars = ts_var_declare(null);
 $stat = ts_var_declare('stat');
 $var = ts_var_declare('var');
+$var2 = ts_var_declare('var2');
 $time = time();
 
 if(defined('THREAD_TASK_NAME')) {
@@ -44,6 +45,7 @@ if(defined('THREAD_TASK_NAME')) {
 				ts_var_pop($res, $i);
 				ts_var_shift($res, $i);
 				ts_var_pop($res, $i);
+				unset($res);
 				break;
 			case 3:
 				ts_var_del($var, 'declare.del') or ts_var_inc($stat, FAILURE, 1);
@@ -70,13 +72,13 @@ if(defined('THREAD_TASK_NAME')) {
 			case 11:
 			case 12:
 			case 13:
-				ts_var_inc($var, rand(0, 99), 1);
+				ts_var_inc($var2, rand(0, 99), 1);
 				break;
 			case 14:
-				ts_var_del($var, rand(0, 99)) or ts_var_inc($stat, FAILURE, 1);
+				ts_var_del($var2, rand(0, 99)) or ts_var_inc($stat, FAILURE, 1);
 				break;
 			case 15:
-				$time % 10 === 0 and ts_var_reindex($var);
+				$time % 10 === 0 and ts_var_reindex($var2);
 				break;
 			case 16:
 				ts_var_get($var);
@@ -89,6 +91,7 @@ if(defined('THREAD_TASK_NAME')) {
 				break;
 			case 19:
 				ts_var_get($var, null, true);
+				break;
 		}
 		ts_var_inc($stat, SUCCESS, 1);
 	}
@@ -103,7 +106,7 @@ if(defined('THREAD_TASK_NAME')) {
 
 	while($running) {
 		sleep(1);
-		$n = ts_var_clean($vars, ++$time) + ts_var_count($var);
+		$n = ts_var_clean($vars, ++$time) + ts_var_count($var) + ts_var_count($var2);
 		$success = (int) ts_var_get($stat, SUCCESS, true);
 		$failure = (int) ts_var_get($stat, FAILURE, true);
 		echo "vars: $n, success: $success, failure: $failure\n";
