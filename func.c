@@ -2002,7 +2002,7 @@ void value_to_zval_wr(value_t *v, zval *return_value) {
 	}
 }
 
-ZEND_BEGIN_ARG_INFO(arginfo_ts_var_declare, 0)
+ZEND_BEGIN_ARG_INFO(arginfo_ts_var_declare, 1)
 ZEND_ARG_INFO(0, key)
 ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 1)
 ZEND_ARG_TYPE_INFO(0, is_fd, _IS_BOOL, 0)
