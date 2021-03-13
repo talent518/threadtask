@@ -103,4 +103,34 @@ static zend_always_inline void zend_stream_init_filename(zend_file_handle *handl
 	}
 #endif
 
+#ifndef ZEND_PARSE_PARAMETERS_NONE
+	#define ZEND_PARSE_PARAMETERS_NONE() do { \
+		if (UNEXPECTED(ZEND_NUM_ARGS() != 0)) { \
+			zend_wrong_parameters_none_error(); \
+			return; \
+		} \
+	} while (0)
+
+	static zend_always_inline int zend_wrong_parameters_none_error(void) /* {{{ */
+	{
+		int num_args = ZEND_CALL_NUM_ARGS(EG(current_execute_data));
+		zend_function *active_function = EG(current_execute_data)->func;
+		const char *class_name = active_function->common.scope ? ZSTR_VAL(active_function->common.scope->name) : "";
+
+		zend_internal_argument_count_error(
+		            ZEND_ARG_USES_STRICT_TYPES(),
+		            "%s%s%s() expects %s %d parameter%s, %d given",
+		            class_name, \
+		            class_name[0] ? "::" : "", \
+		            ZSTR_VAL(active_function->common.function_name),
+		            "exactly",
+		            0,
+		            "s",
+		            num_args);
+		return FAILURE;
+	}
+/* }}} */
+
+#endif
+
 #endif
