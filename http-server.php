@@ -19,12 +19,16 @@ function signal($sig) {
 		// share_var_set('main', debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS));
 	}
 }
+function signal_timeout($sig) {
+	throw new TimeoutException('Execute timeout');
+}
 
 pcntl_async_signals(true);
 pcntl_signal(SIGTERM, 'signal', false);
 pcntl_signal(SIGINT, 'signal', false);
 pcntl_signal(SIGUSR1, 'signal', false);
 pcntl_signal(SIGUSR2, 'signal', false);
+pcntl_signal(SIGALRM, 'signal_timeout', false);
 
 define('IS_TO_FILE', ($env = getenv('IS_TO_FILE')) === false ? true : !empty($env));
 
@@ -371,7 +375,11 @@ if(defined('THREAD_TASK_NAME')) {
 
 	$n = $ns = $ne = 0;
 	while($running) {
-		sleep(1);
+		for($i=0; $i<10; $i++) {
+			usleep(100000);
+			trigger_timeout();
+		}
+
 		$n2 = share_var_get('conns');
 		$n3 = ts_var_count($aptres);
 		$n4 = share_var_get('success');
@@ -456,6 +464,9 @@ function onBody(HttpRequest $request): bool {
 	return true;
 }
 
+class TimeoutException extends Exception {
+}
+
 function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 	switch($request->path) {
 		case '/request-info':
@@ -506,6 +517,18 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 				$request->get['samesite'] ?? ''
 			);
 			return null;
+		case '/timeout':
+			set_timeout(1);
+			try {
+				sleep(5);
+				return null;
+			} catch(TimeoutException $e) {
+				$response->status = 408;
+				$response->statusText = 'Request Timeout';
+				return '<h1>Request Timeout</h1>';
+			} finally {
+				clear_timeout();
+			}
 		default:
 			if($request->isDav) {
 				$path = __DIR__ . $request->path;
