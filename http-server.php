@@ -32,6 +32,8 @@ pcntl_signal(SIGALRM, 'signal_timeout', false);
 
 define('IS_TO_FILE', ($env = getenv('IS_TO_FILE')) === false ? true : !empty($env));
 
+$statres = ts_var_declare('statres');
+
 if(defined('THREAD_TASK_NAME')) {
 	// echo THREAD_TASK_NAME . PHP_EOL;
 
@@ -116,7 +118,7 @@ if(defined('THREAD_TASK_NAME')) {
 					}
 					$cc = unpack('C2', $buf);
 					if(!($cc[1] & 0x80) || ($cc[1] & 0x70) || !($cc[2] & 0x80)) { // !FIN || (RSV1 || RSV2 || RSV3) || !Mask
-						share_var_inc('error', 1);
+						ts_var_inc($statres, 'error', 1);
 						goto close;
 					}
 					$ctl = $cc[1] & 0xf;
@@ -174,12 +176,12 @@ if(defined('THREAD_TASK_NAME')) {
 							goto next;
 							break;
 						default:
-							share_var_inc('error', 1);
+							ts_var_inc($statres, 'error', 1);
 							goto close;
 							break;
 					}
 					
-					share_var_inc('success', 1);
+					ts_var_inc($statres, 'success', 1);
 
 					// mask for message
 					$buf = mask($buf);
@@ -219,7 +221,7 @@ if(defined('THREAD_TASK_NAME')) {
 
 		while($running && ($fd = @socket_accept_ex($sock, $addr, $port)) !== false) {
 			@socket_set_option($fd, SOL_SOCKET, SO_LINGER, ['l_onoff'=>1, 'l_linger'=>1]) or strerror('socket_set_option', false);
-			$i = share_var_inc('conns', 1);
+			$i = ts_var_inc($statres, 'conns', 1);
 			$fd = socket_export_fd($fd, true);
 			ts_var_set($aptres, $i, [$fd,$addr,$port]);
 			if($flag) create_task('read' . $i, __FILE__, [$fd,$i,$addr,$port]);
@@ -260,7 +262,7 @@ if(defined('THREAD_TASK_NAME')) {
 						$response->headers['Connection'] = 'close';
 					}
 					if($response->end(onRequest($request, $response))) {
-						share_var_inc('success', 1);
+						ts_var_inc($statres, 'success', 1);
 
 						if($response->isWebSocket) {
 							$request->isKeepAlive = false;
@@ -270,7 +272,7 @@ if(defined('THREAD_TASK_NAME')) {
 							@socket_write($wfd, 'a');
 						}
 					} else {
-						share_var_inc('error', 1);
+						ts_var_inc($statres, 'error', 1);
 						break;
 					}
 				} else {
@@ -280,7 +282,7 @@ if(defined('THREAD_TASK_NAME')) {
 						$response->headers['Connection'] = 'close';
 						$response->end('Bad Request');
 					}
-					share_var_inc('error', 1);
+					ts_var_inc($statres, 'error', 1);
 				}
 			} while($ret && $request->isKeepAlive);
 
@@ -321,7 +323,7 @@ if(defined('THREAD_TASK_NAME')) {
 					$response->headers['Connection'] = 'close';
 				}
 				if($response->end(onRequest($request, $response))) {
-					share_var_inc('success', 1);
+					ts_var_inc($statres, 'success', 1);
 					
 					if($response->isWebSocket) {
 						$request->isKeepAlive = false;
@@ -333,7 +335,7 @@ if(defined('THREAD_TASK_NAME')) {
 						socket_export_fd($wfd, true);
 					}
 				} else {
-					share_var_inc('error', 1);
+					ts_var_inc($statres, 'error', 1);
 					break;
 				}
 			} else {
@@ -343,7 +345,7 @@ if(defined('THREAD_TASK_NAME')) {
 					$response->headers['Connection'] = 'close';
 					$response->end('Bad Request');
 				}
-				share_var_inc('error', 1);
+				ts_var_inc($statres, 'error', 1);
 			}
 		} while($ret && $request->isKeepAlive);
 
@@ -380,10 +382,10 @@ if(defined('THREAD_TASK_NAME')) {
 			trigger_timeout();
 		}
 
-		$n2 = share_var_get('conns');
+		$n2 = ts_var_get($statres, 'conns');
 		$n3 = ts_var_count($aptres);
-		$n4 = share_var_get('success');
-		$n5 = share_var_get('error');
+		$n4 = ts_var_get($statres, 'success');
+		$n5 = ts_var_get($statres, 'error');
 		$n = $n2 - $n;
 		$ns = $n4 - $ns;
 		$ne = $n5 - $ne;
