@@ -55,8 +55,19 @@ static long le_ts_var_descriptor;
 
 static ts_hash_table_t ts_var;
 
+typedef struct _timeout_t {
+	pthread_t tid;
+	double sec;
+	struct _timeout_t *prev;
+	struct _timeout_t *next;
+} timeout_t;
+
+static timeout_t *thead = NULL;
+static pthread_mutex_t tlock;
+
 typedef struct _php_threadtask_globals_struct {
 	char strftime[20];
+	timeout_t *timeout;
 } php_threadtask_globals_struct;
 
 typedef struct _task_t {
@@ -93,6 +104,19 @@ const char *gettimeofstr() {
 	}
 
 	return SINFO(strftime);
+}
+
+#define MICRO_IN_SEC 1000000.00
+
+double microtime()
+{
+    struct timeval tp = {0};
+
+    if (gettimeofday(&tp, NULL)) {
+        return 0;
+    }   
+
+    return (double)(tp.tv_sec + tp.tv_usec / MICRO_IN_SEC);
 }
 
 void free_task(task_t *task) {
@@ -133,6 +157,8 @@ void thread_init() {
 	pthread_key_create(&pkey, NULL);
 	pthread_setspecific(pkey, NULL);
 
+	pthread_mutex_init(&tlock, NULL);
+
 	ts_hash_table_init(&ts_var, 2);
 	thread_sigmask();
 
@@ -150,6 +176,8 @@ void thread_destroy() {
 	}
 	
 	ts_hash_table_destroy_ex(&ts_var, 0);
+
+	pthread_mutex_destroy(&tlock);
 
 	pthread_key_delete(pkey);
 	pthread_cond_destroy(&ncond);
@@ -684,6 +712,108 @@ static PHP_FUNCTION(task_get_delay) {
 }
 
 // ===========================================================================================================
+
+ZEND_BEGIN_ARG_INFO(arginfo_set_timeout, 0)
+ZEND_ARG_INFO(0, seconds)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(set_timeout) {
+	zend_long sec = 1;
+	ZEND_PARSE_PARAMETERS_START(0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_LONG(sec)
+	ZEND_PARSE_PARAMETERS_END();
+
+	if(SINFO(timeout) || sec <= 0) {
+		RETURN_FALSE;
+	}
+	
+	timeout_t *t = (timeout_t*) malloc(sizeof(timeout_t));
+	t->tid = pthread_self();
+	t->sec = microtime() + sec;
+	SINFO(timeout) = t;
+
+	pthread_mutex_lock(&tlock);
+	if(thead) {
+		t->next = thead->next;
+		thead->next = t;
+		t->next->prev = t;
+		t->prev = thead;
+	} else {
+		t->prev = t;
+		t->next = t;
+		thead = t;
+	}
+	pthread_mutex_unlock(&tlock);
+
+	RETURN_TRUE;
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_clear_timeout, 0)
+ZEND_ARG_INFO(0, seconds)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(clear_timeout) {
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	if(SINFO(timeout) == NULL) {
+		RETURN_FALSE;
+	} else {
+		timeout_t *t = SINFO(timeout);
+
+		pthread_mutex_lock(&tlock);
+		if(thead == t) {
+			if(t->next == t) {
+				thead = NULL;
+			} else {
+				thead = t->next;
+				thead->prev = t->prev;
+				thead->prev->next = thead;
+			}
+		} else {
+			t->prev->next = t->next;
+			t->next->prev = t->prev;
+		}
+		pthread_mutex_unlock(&tlock);
+		
+		free(t);
+
+		SINFO(timeout) = NULL;
+
+		RETURN_TRUE;
+	}
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_trigger_timeout, 0)
+ZEND_ARG_INFO(0, sig)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(trigger_timeout) {
+	zend_long sig = SIGALRM;
+	ZEND_PARSE_PARAMETERS_START(0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_LONG(sig)
+	ZEND_PARSE_PARAMETERS_END();
+
+	timeout_t *t, *p;
+	double sec = microtime();
+
+	pthread_mutex_lock(&tlock);
+	t = thead;
+	while(t) {
+		if(t->sec <= sec) {
+			pthread_kill(t->tid, sig);
+		}
+		if(t->next == thead) break;
+		t = t->next;
+	}
+	pthread_mutex_unlock(&tlock);
+
+	RETURN_TRUE;
+}
+
+// ===========================================================================================================
+
 static hash_table_t *share_var_ht = NULL;
 static pthread_mutex_t share_var_rlock;
 static pthread_mutex_t share_var_wlock;
@@ -2610,6 +2740,10 @@ static const zend_function_entry ext_functions[] = {
 	ZEND_FE(task_set_debug, arginfo_task_set_debug)
 	ZEND_FE(task_get_run, arginfo_task_get_run)
 	ZEND_FE(task_set_run, arginfo_task_set_run)
+	
+	ZEND_FE(set_timeout, arginfo_set_timeout)
+	ZEND_FE(clear_timeout, arginfo_clear_timeout)
+	ZEND_FE(trigger_timeout, arginfo_trigger_timeout)
 
 	PHP_FE(share_var_init, arginfo_share_var_init)
 	PHP_FE(share_var_exists, arginfo_share_var_exists)
@@ -2650,9 +2784,33 @@ static const zend_function_entry ext_functions[] = {
 // -----------------------------------------------------------------------------------------------------------
 
 static void php_threadtask_globals_ctor(php_threadtask_globals_struct *php_threadtask_globals) {
+	php_threadtask_globals->timeout = NULL;
 }
 
 static void php_threadtask_globals_dtor(php_threadtask_globals_struct *php_threadtask_globals) {
+	if(php_threadtask_globals->timeout) {
+		timeout_t *t = php_threadtask_globals->timeout;
+
+		pthread_mutex_lock(&tlock);
+		if(thead == t) {
+			if(t->next == t) {
+				thead = NULL;
+			} else {
+				thead = t->next;
+				thead->prev = thead->prev->prev;
+				thead->prev->next = thead;
+			}
+		} else {
+			t->prev = t;
+			t->next = t;
+			thead = t;
+		}
+		pthread_mutex_unlock(&tlock);
+		
+		free(t);
+
+		php_threadtask_globals->timeout = NULL;
+	}
 }
 
 static void php_destroy_threadtask(zend_resource *rsrc) {

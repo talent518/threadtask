@@ -108,6 +108,13 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
   * $var: 由ts_var_declare函数返回的变量
   * $only_integer_keys: 是否紧整数索引
 
+### 代码块执行超时处理
+* 设置超时: set_timeout(int $seconds = 1): bool
+* 清除超时: clear_timeout(): bool
+* 触发超时: trigger_timeout(int $signal = SIGALRM): bool
+  * $signal: 向任务线程发送的信号，使用 pcntrl_signal()函数绑定信号处理函数
+* 示例: http-server.php中有使用
+
 ### 常量
 * THREAD_TASK_NAME: string 任务名
 
