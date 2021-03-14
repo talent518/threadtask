@@ -236,7 +236,8 @@ if(defined('THREAD_TASK_NAME')) {
 		$rfd = ts_var_fd($aptres);
 		$wfd = ts_var_fd($wsres, true);
 		while($running) {
-			if(!@socket_read($rfd, 1)) continue;
+			if(!($a = @socket_read($rfd, 1))) continue;
+			if($a !== 'a') break;
 
 			list($fd, $addr, $port) = ts_var_shift($aptres);
 
@@ -396,6 +397,11 @@ if(defined('THREAD_TASK_NAME')) {
 
 		//var_dump(share_var_get());
 	}
+
+	$wfd = ts_var_fd($aptres, true);
+	@socket_write($wfd, str_repeat('e', 1024));
+	socket_export_fd($wfd, true); // skip close socket
+	unset($wfd);
 
 	task_wait($exitSig?:SIGINT);
 
