@@ -99,7 +99,7 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
   * $var: 由ts_var_declare函数返回的变量
   * $only_integer_keys: 是否紧整数索引
 
-### 4. sockets附加函数
+#### 4. sockets附加函数
 * 导出socket文件描述符为整型: socket_export_fd(resource $socket, bool $is_close = false)
   * $socket: resouce socket_create或socket_create_listen返回的资源类型值
   * $is_close: bool 为true时，不自动关闭$socket文件描述符，使用socket_close($socket)也一样
@@ -110,7 +110,7 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
   * $addr: string 客户端IP地址
   * $port: int 客户端端口号
 
-### 5. 代码块执行超时处理
+#### 5. 代码块执行超时处理
 * 设置超时: set_timeout(int $seconds = 1): bool
 * 清除超时: clear_timeout(): bool
 * 触发超时: trigger_timeout(int $signal = SIGALRM): bool
