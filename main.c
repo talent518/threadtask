@@ -177,7 +177,7 @@ opts:
 	return 0;
 usage:
 	fprintf(stderr, 
-		"usage: %s [-D] [-d <delay>] [-t <threads>] [-r] [--] <phpfile> args...\n"
+		"usage: %s [[-D] [-d <delay>] [-t <threads>] [-r] --] <phpfile> args...\n"
 		"    -D              Debug info\n"
 		"    -d <delay>      Delay seconds\n"
 		"    -t <threads>    Max threads\n"
