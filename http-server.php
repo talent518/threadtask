@@ -287,6 +287,8 @@ if(defined('THREAD_TASK_NAME')) {
 				}
 			} while($ret && $request->isKeepAlive);
 
+			$request = $response = $addr = null;
+
 			//is_int($fd) or @socket_shutdown($fd) or strerror('socket_shutdown', false);
 			is_int($fd) or @socket_close($fd);
 		}
@@ -350,8 +352,8 @@ if(defined('THREAD_TASK_NAME')) {
 			}
 		} while($ret && $request->isKeepAlive);
 
-		//is_resource($fd) and @socket_shutdown($fd) or strerror('socket_shutdown', false);
-		is_resource($fd) and @socket_close($fd);
+		//is_int($fd) or @socket_shutdown($fd) or strerror('socket_shutdown', false);
+		is_int($fd) or @socket_close($fd);
 	}
 } else {
 	$host = ($_SERVER['argv'][1]??'127.0.0.1');
