@@ -14,6 +14,43 @@
 		} while(0)
 #endif
 
+#if PHP_VERSION_ID < 70400
+void zend_stream_init_filename(zend_file_handle *file_handle, const char *script_file) {
+    int c;
+
+	memset(file_handle, 0, sizeof(zend_file_handle));
+    file_handle->type = ZEND_HANDLE_FP;
+    file_handle->opened_path = NULL;
+    file_handle->free_filename = 0;
+    if (!(file_handle->handle.fp = VCWD_FOPEN(script_file, "rb"))) {
+        fprintf(stderr, "Could not open input file: %s\n", script_file);
+        zend_bailout();
+        return;
+    }
+    file_handle->filename = script_file;
+
+    CG(start_lineno) = 1; 
+
+    /* #!php support */
+    c = fgetc(file_handle->handle.fp);
+    if (c == '#' && (c = fgetc(file_handle->handle.fp)) == '!') {
+        while (c != '\n' && c != '\r' && c != EOF) {
+            c = fgetc(file_handle->handle.fp);  /* skip to end of line */
+        }
+        /* handle situations where line is terminated by \r\n */
+        if (c == '\r') {
+            if (fgetc(file_handle->handle.fp) != '\n') {
+                zend_long pos = zend_ftell(file_handle->handle.fp);
+                zend_fseek(file_handle->handle.fp, pos - 1, SEEK_SET);
+            }
+        }
+        CG(start_lineno) = 2; 
+    } else {
+        rewind(file_handle->handle.fp);
+    }
+}
+#endif
+
 void cli_register_file_handles(void) {
 	php_stream *s_in, *s_out, *s_err;
 	php_stream_context *sc_in=NULL, *sc_out=NULL, *sc_err=NULL;
@@ -107,11 +144,6 @@ opts:
 	
 	if(optind >= argc) {
 		goto usage;
-	}
-	
-	if(access(argv[optind], F_OK|R_OK) != 0) {
-		perror("phpfile is not exists");
-		return 1;
 	}
 
 	thread_init();

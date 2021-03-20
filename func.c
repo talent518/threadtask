@@ -443,7 +443,7 @@ static PHP_FUNCTION(create_task) {
 	ZEND_PARSE_PARAMETERS_END();
 
 	if(access(filename, F_OK|R_OK) != 0) {
-		perror("access() is error");
+		fprintf(stderr, "Could not open input file: %s\n", filename);
 		RETURN_FALSE;
 	}
 

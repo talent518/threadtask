@@ -1,7 +1,7 @@
 <?php
 $running = true;
 $exitSig = 0;
-function signal($sig) {
+function signal(int $sig) {
 	global $running, $exitSig;
 
 	$exitSig = $sig;
@@ -19,7 +19,7 @@ function signal($sig) {
 		// share_var_set('main', debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS));
 	}
 }
-function signal_timeout($sig) {
+function signal_timeout(int $sig) {
 	throw new TimeoutException('Execute timeout');
 }
 
@@ -432,7 +432,7 @@ if(defined('THREAD_TASK_NAME')) {
 	echo "Stoped\n";
 }
 
-function strerror($msg, $isExit = true) {
+function strerror(string $msg, bool $isExit = true) {
 	$err = socket_last_error();
 	socket_clear_error();
 	if($err === SOCKET_EINTR) return;
@@ -446,7 +446,7 @@ function strerror($msg, $isExit = true) {
 	if($isExit) exit; else return true;
 }
 
-function mask($txt, $ctl = 0x81) {
+function mask(string $txt, int $ctl = 0x81) {
 	$n = strlen($txt);
 	if($n <= 125)
 		return pack('CC', $ctl, $n) . $txt;
@@ -633,15 +633,15 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 				case 'atime':
 				case 'mtime':
 				case 'ctime':
-					$call = function($a, $b) use($key) {return $a[$key] <=> $b[$key];};
+					$call = function(array $a, array $b) use($key) {return $a[$key] <=> $b[$key];};
 					break;
 				default:
-					$call = function($a, $b) use($key) {return strcmp($a[$key], $b[$key]);};
+					$call = function(array $a, array $b) use($key) {return strcmp($a[$key], $b[$key]);};
 					break;
 			}
 			
 			if($sort === 'asc') usort($files, $call);
-			else usort($files, function($a, $b) use($call) {return -$call($a, $b);});
+			else usort($files, function(array $a, array $b) use($call) {return -$call($a, $b);});
 		}
 
 		if(isset($request->get['json'])) {
@@ -940,50 +940,50 @@ function getperms(int $mode, ?string &$type = null) {
 }
 
 class HttpRequest {
-	public ?string $clientAddr = null;
-	public int $clientPort = 0;
-	public int $readlen = 0;
+	public $clientAddr = null;
+	public $clientPort = 0;
+	public $readlen = 0;
 
-	public ?string $head = null;
+	public $head = null;
 	
-	public ?string $method = null;
-	public ?string $uri = null;
-	public ?string $protocol = null;
-	public bool $isHTTP = false;
+	public $method = null;
+	public $uri = null;
+	public $protocol = null;
+	public $isHTTP = false;
 
-	public ?string $path = null;
-	public array $get = [];
+	public $path = null;
+	public $get = [];
 
-	public array $headers = [];
-	public array $cookies = [];
-	public array $post = [];
-	public array $files = [];
+	public $headers = [];
+	public $cookies = [];
+	public $post = [];
+	public $files = [];
 	
-	public bool $isKeepAlive = false;
+	public $isKeepAlive = false;
 
 	private $fd;
 	
-	public int $mode = self::MODE_FIRST;
-	public ?string $buf = null;
-	public int $bodymode = 0;
-	public ?string $bodytype = null;
-	public array $bodyargs = [];
-	public int $bodylen = 0;
-	public int $bodyoff = 0;
+	public $mode = self::MODE_FIRST;
+	public $buf = null;
+	public $bodymode = 0;
+	public $bodytype = null;
+	public $bodyargs = [];
+	public $bodylen = 0;
+	public $bodyoff = 0;
 	
-	public bool $isDav = false;
+	public $isDav = false;
 	
 	private $onBody = null;
 	
-	private bool $isToFile = IS_TO_FILE;
+	private $isToFile = IS_TO_FILE;
 	private $fp = null;
-	private int $formmode = self::FORM_MODE_BOUNDARY;
-	private ?string $boundary = null;
-	private ?string $boundaryBgn = null;
-	private ?string $boundaryPos = null;
-	private ?string $boundaryEnd = null;
-	private array $formheaders = [];
-	private array $formargs = [];
+	private $formmode = self::FORM_MODE_BOUNDARY;
+	private $boundary = null;
+	private $boundaryBgn = null;
+	private $boundaryPos = null;
+	private $boundaryEnd = null;
+	private $formheaders = [];
+	private $formargs = [];
 
 	const MODE_FIRST = 1;
 	const MODE_HEAD = 2;
@@ -1305,17 +1305,17 @@ class HttpRequest {
 }
 
 class HttpResponse {
-	public string $protocol;
-	public int $status;
-	public string $statusText;
+	public $protocol;
+	public $status;
+	public $statusText;
 	
 	private $fd;
 	
-	private bool $isHeadSent = false;
-	public array $headers = ['Content-Type'=>'text/html; charset=utf-8'];
-	public bool $isChunked = false;
-	public bool $isEnd = false;
-	public bool $isWebSocket = false;
+	private $isHeadSent = false;
+	public $headers = ['Content-Type'=>'text/html; charset=utf-8'];
+	public $isChunked = false;
+	public $isEnd = false;
+	public $isWebSocket = false;
 	
 	public function __construct($fd, string $protocol, int $status = 200, $statusText = 'OK') {
 		$this->fd = $fd;

@@ -35,11 +35,7 @@ void php_thread_flush_handler(void *server_context);
 void socket_import_fd(int fd, zval *return_value);
 
 #if PHP_VERSION_ID < 70400
-static zend_always_inline void zend_stream_init_filename(zend_file_handle *handle, const char *filename) {
-	memset(handle, 0, sizeof(zend_file_handle));
-	handle->type = ZEND_HANDLE_FILENAME;
-	handle->filename = filename;
-}
+void zend_stream_init_filename(zend_file_handle *file_handle, const char *script_file);
 #endif
 
 #ifndef Z_PARAM_RESOURCE_OR_NULL
