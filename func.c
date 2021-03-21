@@ -141,7 +141,7 @@ void thread_sigmask() {
 
 	sigemptyset(&set);
 
-	for(sig=SIGHUP; sig<=SIGSYS; sig++) {
+	for(sig=1; sig<=NSIG; sig++) {
 		sigaddset(&set, sig);
 	}
 
@@ -709,6 +709,60 @@ static PHP_FUNCTION(task_get_delay) {
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	RETVAL_LONG(delay);
+}
+
+// -----------------------------------------------------------------------------------------------------------
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_pthread_sigmask, 0, 2, _IS_BOOL, 0)
+    ZEND_ARG_TYPE_INFO(0, mode, IS_LONG, 0)
+    ZEND_ARG_TYPE_INFO(0, signals, IS_ARRAY, 0)
+	ZEND_ARG_INFO(1, old_signals)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(pthread_sigmask) {
+    zend_long          how, signo;
+    zval         *user_set, *user_oldset = NULL, *user_signo;
+    sigset_t      set, oldset;
+
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "la|z/", &how, &user_set, &user_oldset) == FAILURE) {
+        RETURN_FALSE;
+    }
+
+    if (sigemptyset(&set) != 0 || sigemptyset(&oldset) != 0) { 
+        php_error_docref(NULL, E_WARNING, "%s", strerror(errno));
+        RETURN_FALSE;
+    }
+
+    ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(user_set), user_signo) {
+        signo = zval_get_long(user_signo);
+        if (sigaddset(&set, signo) != 0) { 
+            php_error_docref(NULL, E_WARNING, "%s", strerror(errno));
+            RETURN_FALSE;
+        }    
+    } ZEND_HASH_FOREACH_END();
+
+    if (pthread_sigmask(how, &set, &oldset) != 0) { 
+        php_error_docref(NULL, E_WARNING, "%s", strerror(errno));
+        RETURN_FALSE;
+    }
+
+    if (user_oldset != NULL) {
+		if (Z_TYPE_P(user_oldset) != IS_ARRAY) {
+            zval_ptr_dtor(user_oldset);
+            array_init(user_oldset);
+        } else {
+            zend_hash_clean(Z_ARRVAL_P(user_oldset));
+        }
+
+        for (signo = 1; signo < NSIG; ++signo) {
+            if (sigismember(&oldset, signo) != 1) { 
+                continue;
+            }
+            add_next_index_long(user_oldset, signo);
+        }
+    }
+
+    RETURN_TRUE;
 }
 
 // ===========================================================================================================
@@ -2740,6 +2794,7 @@ static const zend_function_entry ext_functions[] = {
 	ZEND_FE(task_set_debug, arginfo_task_set_debug)
 	ZEND_FE(task_get_run, arginfo_task_get_run)
 	ZEND_FE(task_set_run, arginfo_task_set_run)
+	ZEND_FE(pthread_sigmask, arginfo_pthread_sigmask)
 	
 	ZEND_FE(set_timeout, arginfo_set_timeout)
 	ZEND_FE(clear_timeout, arginfo_clear_timeout)

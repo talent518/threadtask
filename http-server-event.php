@@ -29,6 +29,7 @@ pcntl_signal(SIGINT, 'signal', false);
 pcntl_signal(SIGUSR1, 'signal', false);
 pcntl_signal(SIGUSR2, 'signal', false);
 pcntl_signal(SIGALRM, 'signal_timeout', false);
+pthread_sigmask(SIG_SETMASK, []);
 
 define('IS_TO_FILE', ($env = getenv('IS_TO_FILE')) === false ? true : !empty($env));
 
@@ -175,7 +176,7 @@ if(defined('THREAD_TASK_NAME')) {
 						unset($bufs[$i]);
 						goto unpack;
 					}
-				}, null, function($fd, $event, $arg) use(&$events) {
+				}, null, function($bev, $event, $arg) use(&$events) {
 					if($event & (EventBufferEvent::EOF | EventBufferEvent::ERROR)) {
 						unset($events[$arg]);
 					}
@@ -199,10 +200,12 @@ if(defined('THREAD_TASK_NAME')) {
 		});
 		$timer->addTimer(30);
 		
-		$signal = new Event($base, -1, Event::TIMEOUT | Event::PERSIST, function() {});
-		$signal->addTimer(0.5);
+		$timer = new Event($base, -1, Event::TIMEOUT | Event::PERSIST, function() use(&$base, &$running) {
+			if(!$running) $base->exit();
+		});
+		$timer->addTimer(0.5);
 
-		while($running) $base->loop(EventBase::LOOP_ONCE);
+		$base->loop();
 		
 		socket_export_fd($rfd, true); // skip close socket
 	} elseif(strncmp(THREAD_TASK_NAME, 'accept', 6) == 0) {
@@ -375,13 +378,10 @@ if(defined('THREAD_TASK_NAME')) {
 	if(!$flag) for($i=0; $i<100; $i++) create_task('read' . $i, __FILE__, []);
 	for($i=0; $i<4; $i++) create_task('accept' . $i, __FILE__, [$fd,$flag]);
 
+	$base = new EventBase();
 	$n = $ns = $ne = 0;
-	while($running) {
-		for($i=0; $i<10; $i++) {
-			usleep(100000);
-			trigger_timeout();
-		}
-
+	
+	$timer = new Event($base, -1, Event::TIMEOUT | Event::PERSIST, function() use(&$statres, &$aptres, &$n, &$ns, &$ne) {
 		$n2 = ts_var_get($statres, 'conns');
 		$n3 = ts_var_count($aptres);
 		$n4 = ts_var_get($statres, 'success');
@@ -393,9 +393,17 @@ if(defined('THREAD_TASK_NAME')) {
 		$n = $n2;
 		$ns = $n4;
 		$ne = $n5;
+	});
+	$timer->addTimer(1);
+	
+	$timer2 = new Event($base, -1, Event::TIMEOUT | Event::PERSIST, function() use(&$base, &$running) {
+		trigger_timeout();
 
-		//var_dump(share_var_get());
-	}
+		if(!$running) $base->exit();
+	});
+	$timer2->addTimer(0.01);
+
+	$base->loop();
 
 	$wfd = ts_var_fd($aptres, true);
 	@socket_write($wfd, str_repeat('e', 1024));
@@ -526,12 +534,14 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 			return null;
 		case '/timeout':
 			set_timeout(1);
+			$t = microtime(true);
 			try {
 				sleep(5);
 				return null;
 			} catch(TimeoutException $e) {
 				$response->status = 408;
 				$response->statusText = 'Request Timeout';
+				$response->headers['Run-Time'] = microtime(true) - $t;
 				return '<h1>Request Timeout</h1>';
 			} finally {
 				clear_timeout();

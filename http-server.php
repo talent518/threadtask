@@ -30,6 +30,8 @@ pcntl_signal(SIGUSR1, 'signal', false);
 pcntl_signal(SIGUSR2, 'signal', false);
 pcntl_signal(SIGALRM, 'signal_timeout', false);
 
+pthread_sigmask(SIG_SETMASK, []);
+
 define('IS_TO_FILE', ($env = getenv('IS_TO_FILE')) === false ? true : !empty($env));
 
 $statres = ts_var_declare('statres');
