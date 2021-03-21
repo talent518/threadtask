@@ -37,6 +37,13 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
 * 是否正在运行: task_get_run()
 * 设置运行状态(默认值为true): task_set_run($isRun = false)
   * $isRun: bool 是否继续运行
+* 设置线程信号掩码: pthread_sigmask(int $how, array $set, ?array &oldset = null)
+  * $how: 包括以下可选值
+    * SIG_BLOCK: 把信号加入到当前阻塞信号中。
+    * SIG_UNBLOCK: 从当前阻塞信号中移出信号。
+    * SIG_SETMASK: 用给定的信号列表替换当前阻塞信号列表。
+  * $set: 信号列表。
+  * $oldset: 是一个输出参数，用来返回之前的阻塞信号列表数组。
 
 #### 2. 共享变量相关
 * 初始化共享变量(只能在主线程中使用): share_var_init($size = 128)
