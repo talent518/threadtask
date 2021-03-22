@@ -408,7 +408,7 @@ if(defined('THREAD_TASK_NAME')) {
 	}
 
 	$wfd = ts_var_fd($aptres, true);
-	@socket_write($wfd, str_repeat('e', 1024));
+	@socket_write($wfd, str_repeat('e', task_get_threads(true)));
 	socket_export_fd($wfd, true); // skip close socket
 	unset($wfd);
 
