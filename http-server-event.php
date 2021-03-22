@@ -29,6 +29,7 @@ pcntl_signal(SIGINT, 'signal', false);
 pcntl_signal(SIGUSR1, 'signal', false);
 pcntl_signal(SIGUSR2, 'signal', false);
 pcntl_signal(SIGALRM, 'signal_timeout', false);
+
 pthread_sigmask(SIG_SETMASK, []);
 
 define('IS_TO_FILE', ($env = getenv('IS_TO_FILE')) === false ? true : !empty($env));
@@ -406,7 +407,7 @@ if(defined('THREAD_TASK_NAME')) {
 	$base->loop();
 
 	$wfd = ts_var_fd($aptres, true);
-	@socket_write($wfd, str_repeat('e', 1024));
+	@socket_write($wfd, str_repeat('e', task_get_threads(true)));
 	socket_export_fd($wfd, true); // skip close socket
 	unset($wfd);
 
@@ -425,7 +426,9 @@ if(defined('THREAD_TASK_NAME')) {
 	@socket_shutdown($sock) or strerror('socket_shutdown');
 	@socket_close($sock);
 
-	// echo json_encode(share_var_get(), JSON_PRETTY_PRINT);
+	// $vars = share_var_get();
+	// ksort($vars);
+	// echo json_encode($vars, JSON_PRETTY_PRINT);
 
 	share_var_destory();
 
