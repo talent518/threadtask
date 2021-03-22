@@ -221,7 +221,7 @@ if(defined('THREAD_TASK_NAME')) {
 			$fd = socket_export_fd($fd, true);
 			ts_var_set($aptres, $i, [$fd,$addr,$port]);
 			if($flag || ts_var_inc($statres, 'accept', -1) < 0) {
-				create_task('read' . $i, __FILE__, [$fd,$i,$addr,$port]);
+				create_task('read' . $i, __FILE__, [1]);
 				if(!$flag) ts_var_inc($statres, 'accept', 1);
 			} else @socket_write($wfd, 'a', 1);
 		}
@@ -299,11 +299,7 @@ if(defined('THREAD_TASK_NAME')) {
 
 		//echo THREAD_TASK_NAME . " Closed\n";
 	} else {
-		$fd = (int) $_SERVER['argv'][1];
-		$i = (int) $_SERVER['argv'][2];
-		$addr = $_SERVER['argv'][3];
-		$port = $_SERVER['argv'][4];
-		ts_var_del($aptres, $i);
+		list($fd, $addr, $port) = ts_var_shift($aptres);
 
 		$fd = socket_import_fd($fd);
 
