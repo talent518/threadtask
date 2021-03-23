@@ -542,6 +542,28 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 			} finally {
 				clear_timeout();
 			}
+		case '/mysql':
+			global $DB, $CFG, $DB_time, $DB_wait;
+			try {
+				$t = microtime(true);
+				if(!$DB || $DB_time < $t || array_diff($CFG, $request->get['cfg']??[])) {
+					$CFG = $request->get['cfg']??[];
+					$DB = new PDO('mysql:dbname=' . ($CFG['db']??'test') . ';host=' . ($CFG['host']??'localhost'), $CFG['user']??'root', $CFG['pass']??'123456');
+					$query = $DB->prepare('SELECT @@wait_timeout');
+					$query->execute();
+					$DB_wait = (int) $query->fetchColumn(0);
+					$response->headers['Wait-Timeout'] = $DB_wait;
+				}
+				$query = $DB->prepare($request->get['query']??'show tables');
+				$query->execute();
+				$DB_time = $t + $DB_wait;
+				$response->setContentType('application/json; charset=utf-8');
+				return json_encode($query->fetchAll(PDO::FETCH_OBJ));
+			} catch(PDOException $e) {
+				$response->setContentType('text/plain; charset=utf-8');
+				return (string) $e;
+			}
+			break;
 		default:
 			if($request->isDav) {
 				$path = __DIR__ . $request->path;
@@ -1310,7 +1332,7 @@ class HttpResponse {
 	private $fd;
 	
 	private $isHeadSent = false;
-	public $headers = ['Content-Type'=>'text/html; charset=utf-8'];
+	public $headers = ['Content-Type'=>'text/html; charset=utf-8', 'Task-Name'=>THREAD_TASK_NAME];
 	public $isChunked = false;
 	public $isEnd = false;
 	public $isWebSocket = false;
