@@ -194,6 +194,7 @@ typedef struct ts_hash_table_t {
 	pthread_mutex_t wlock;
 	pthread_mutex_t lock;
 	int fds[2];
+	int expire;
 } ts_hash_table_t;
 
 static zend_always_inline int _ts_hash_table_init(ts_hash_table_t *ts_ht, uint nSize, hash_dtor_func_t pDestructor, zend_bool bApplyProtection) {
@@ -201,6 +202,7 @@ static zend_always_inline int _ts_hash_table_init(ts_hash_table_t *ts_ht, uint n
 	ts_ht->ref_count = 1;
 	ts_ht->fds[0] = 0;
 	ts_ht->fds[1] = 0;
+	ts_ht->expire = 0;
 	pthread_mutex_init(&ts_ht->rlock, NULL);
 	pthread_mutex_init(&ts_ht->wlock, NULL);
 	pthread_mutex_init(&ts_ht->lock, NULL);

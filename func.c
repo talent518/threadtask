@@ -767,6 +767,18 @@ static PHP_FUNCTION(pthread_sigmask) {
 
 // ===========================================================================================================
 
+ZEND_BEGIN_ARG_INFO(arginfo_call_and_free_shutdown, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(call_and_free_shutdown) {
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	php_call_shutdown_functions();
+	php_free_shutdown_functions();
+}
+
+// ===========================================================================================================
+
 ZEND_BEGIN_ARG_INFO(arginfo_set_timeout, 0)
 ZEND_ARG_INFO(0, seconds)
 ZEND_END_ARG_INFO()
@@ -1800,9 +1812,11 @@ static int hash_table_clean_ex(bucket_t *p, int *ex) {
 	} else if(p->value.type == HT_T) {
 		hash_table_apply_with_argument(p->value.ptr, (hash_apply_func_arg_t) hash_table_clean_ex, ex);
 	} else if(p->value.type == TS_HT_T) {
-		ts_hash_table_wr_lock(p->value.ptr);
+		ts_hash_table_t *ptr = (ts_hash_table_t*) p->value.ptr;
+		if(ptr->expire && ptr->expire < *ex) return HASH_TABLE_APPLY_REMOVE;
+		ts_hash_table_wr_lock(ptr);
 		hash_table_apply_with_argument(p->value.ptr, (hash_apply_func_arg_t) hash_table_clean_ex, ex);
-		ts_hash_table_wr_unlock(p->value.ptr);
+		ts_hash_table_wr_unlock(ptr);
 	}
 	
 	return HASH_TABLE_APPLY_KEEP;
@@ -2153,6 +2167,31 @@ static PHP_FUNCTION(ts_var_fd) {
 	} else {
 		socket_import_fd(ts_ht->fds[0], return_value);
 	}
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_ts_var_expire, 2)
+ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 0)
+ZEND_ARG_TYPE_INFO(0, expire, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(ts_var_expire) {
+	zval *zv;
+	zend_long expire = 0;
+	
+	ts_hash_table_t *ts_ht;
+
+	ZEND_PARSE_PARAMETERS_START(2, 2)
+		Z_PARAM_RESOURCE(zv)
+		Z_PARAM_LONG(expire)
+	ZEND_PARSE_PARAMETERS_END();
+	
+	if ((ts_ht = (ts_hash_table_t *) zend_fetch_resource_ex(zv, PHP_TS_VAR_DESCRIPTOR, le_ts_var_descriptor)) == NULL) {
+		RETURN_FALSE;
+	}
+
+	ts_hash_table_wr_lock(ts_ht);
+	ts_ht->expire = expire;
+	ts_hash_table_wr_unlock(ts_ht);
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_ts_var_exists, 1)
@@ -2795,7 +2834,9 @@ static const zend_function_entry ext_functions[] = {
 	ZEND_FE(task_get_run, arginfo_task_get_run)
 	ZEND_FE(task_set_run, arginfo_task_set_run)
 	ZEND_FE(pthread_sigmask, arginfo_pthread_sigmask)
-	
+
+	ZEND_FE(call_and_free_shutdown, arginfo_call_and_free_shutdown)
+
 	ZEND_FE(set_timeout, arginfo_set_timeout)
 	ZEND_FE(clear_timeout, arginfo_clear_timeout)
 	ZEND_FE(trigger_timeout, arginfo_trigger_timeout)
@@ -2816,6 +2857,7 @@ static const zend_function_entry ext_functions[] = {
 
 	PHP_FE(ts_var_declare, arginfo_ts_var_declare)
 	PHP_FE(ts_var_fd, arginfo_ts_var_fd)
+	PHP_FE(ts_var_expire, arginfo_ts_var_expire)
 	PHP_FE(ts_var_exists, arginfo_ts_var_exists)
 	PHP_FE(ts_var_set, arginfo_ts_var_set)
 	PHP_FALIAS(ts_var_put, ts_var_set, arginfo_ts_var_set)
