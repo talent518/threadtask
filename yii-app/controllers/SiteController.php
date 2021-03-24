@@ -9,6 +9,7 @@ use yii\web\Response;
 use yii\filters\VerbFilter;
 use app\models\LoginForm;
 use app\models\ContactForm;
+use app\models\User;
 
 class SiteController extends Controller
 {
@@ -131,5 +132,8 @@ class SiteController extends Controller
     	$session->destroy();
     	\Yii::$app->user->logout();
     	return $this->asJson([\Yii::$app->request->cookies->toArray(), $session->id, $session->iterator]);
+    }
+    public function actionUser() {
+    	return $this->asJson(User::find()->all());
     }
 }

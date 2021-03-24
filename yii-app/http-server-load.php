@@ -1,6 +1,6 @@
 <?php
-defined('YII_DEBUG') or define('YII_DEBUG', true);
-defined('YII_ENV') or define('YII_ENV', 'dev');
+// defined('YII_DEBUG') or define('YII_DEBUG', true);
+// defined('YII_ENV') or define('YII_ENV', 'dev');
 
 require __DIR__ . '/vendor/autoload.php';
 require __DIR__ . '/vendor/yiisoft/yii2/Yii.php';
@@ -16,6 +16,8 @@ $onBody = function(HttpRequest $request) {
 };
 
 $onRequest = function(HttpRequest $request, HttpResponse $response) use(&$app, $config) { // return onRequest($request, $response);
+	static $db;
+	
 	if($request->path !== '/' && $request->path !== '.htaccess' && substr($request->path, -4) !== '.php') {
 		$path = __DIR__ . '/web/' . $request->path;
 		if(file_exists($path)) return onMediaFile($request, $response, $path);
@@ -25,7 +27,15 @@ $onRequest = function(HttpRequest $request, HttpResponse $response) use(&$app, $
 		$config['components']['request']['request'] = $request;
 		$config['components']['response']['response'] = $response;
 		
-		(new app\threadtask\Application($config))->run();
+// 		if(Yii::$app) {
+// 			Yii::$app->set('request', $config['components']['request']);
+// 			Yii::$app->set('response', $config['components']['response']);
+// 			Yii::$app->init();
+// 			Yii::$app->run();
+// 		} else {
+			if($db) $config['components']['db'] = $db;
+			(new app\threadtask\Application($config))->run();
+// 		}
 	} catch(\Error $e) {
 		$response->status = 500;
 		$response->statusText = 'Internal Server Error';
@@ -39,6 +49,16 @@ $onRequest = function(HttpRequest $request, HttpResponse $response) use(&$app, $
 	} catch(\ExitRequest $e) {
 		return null;
 	} finally {
+// 		unset($config['components']['request']['request'], $config['components']['response']);
+		
+// 		Yii::$app->set('request', $config['components']['request']);
+// 		Yii::$app->set('response', $config['components']['response']);
+// 		Yii::$app->set('session', $config['components']['session']);
+
+		if(!$db && Yii::$app && Yii::$app->has('db', true)) {
+			$db = Yii::$app->getDb();
+		}
+		
 		call_and_free_shutdown();
 		Yii::$app = null;
 	}
