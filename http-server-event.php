@@ -34,6 +34,9 @@ pthread_sigmask(SIG_SETMASK, []);
 
 define('IS_TO_FILE', ($env = getenv('IS_TO_FILE')) === false ? true : !empty($env));
 
+isset($onBody) or ($onBody = 'onBody');
+isset($onRequest) or ($onRequest = 'onRequest');
+
 $statres = ts_var_declare('statres');
 
 if(defined('THREAD_TASK_NAME')) {
@@ -231,6 +234,8 @@ if(defined('THREAD_TASK_NAME')) {
 
 		//echo THREAD_TASK_NAME . " Closed\n";
 	} elseif(empty($_SERVER['argv'][1])) {
+		is_file('http-server-load.php') and require('http-server-load.php');
+		
 		$rfd = ts_var_fd($aptres);
 		$wfd = ts_var_fd($wsres, true);
 		ts_var_inc($statres, 'accept', 1);
@@ -244,7 +249,7 @@ if(defined('THREAD_TASK_NAME')) {
 
 			$t = microtime(true);
 			do {
-				$request = new HttpRequest($fd, $addr, $port, 'onBody');
+				$request = new HttpRequest($fd, $addr, $port, $onBody);
 				while(($ret = $request->read()) === false);
 				if(!$request->isHTTP) break;
 
@@ -261,7 +266,7 @@ if(defined('THREAD_TASK_NAME')) {
 					} else {
 						$response->headers['Connection'] = 'close';
 					}
-					if($response->end(onRequest($request, $response))) {
+					if($response->end($onRequest($request, $response))) {
 						ts_var_inc($statres, 'success', 1);
 
 						if($response->isWebSocket) {
@@ -299,13 +304,15 @@ if(defined('THREAD_TASK_NAME')) {
 
 		//echo THREAD_TASK_NAME . " Closed\n";
 	} else {
+		is_file('http-server-load.php') and require('http-server-load.php');
+		
 		list($fd, $addr, $port) = ts_var_shift($aptres);
 
 		$fd = socket_import_fd($fd);
 
 		$t = microtime(true);
 		do {
-			$request = new HttpRequest($fd, $addr, $port, 'onBody');
+			$request = new HttpRequest($fd, $addr, $port, $onBody);
 			while(($ret = $request->read()) === false);
 			if(!$request->isHTTP) break;
 
@@ -322,7 +329,7 @@ if(defined('THREAD_TASK_NAME')) {
 				} else {
 					$response->headers['Connection'] = 'close';
 				}
-				if($response->end(onRequest($request, $response))) {
+				if($response->end($onRequest($request, $response))) {
 					ts_var_inc($statres, 'success', 1);
 					
 					if($response->isWebSocket) {
@@ -502,23 +509,7 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 			for($i=0;$i<$n;$i++) $response->write("LINE: $i/$n\r\n");
 			return $n % 2 === 0 ? null : "END: $i/$n\r\n";
 		case '/ws':
-			if(!isset($request->headers['Upgrade'], $request->headers['Sec-WebSocket-Key'], $request->headers['Sec-WebSocket-Version']) || empty($request->headers['Sec-WebSocket-Key']) || $request->headers['Upgrade'] !== 'websocket') {
-				$response->status = 404;
-				$response->statusText = 'Not Found';
-				return '<h1>Not Found</h1>';
-			}
-			$host = $request->headers['Host'] ?? '127.0.0.1:5000';
-			$secAccept = base64_encode(pack('H*', sha1($request->headers['Sec-WebSocket-Key'] . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')));
-			$response->status = 101;
-			$response->statusText = 'Web Socket Protocol Handshake';
-			$response->headers['Upgrade'] = 'websocket';
-			$response->headers['Connection'] = 'Upgrade';
-			$response->headers['WebSocket-Origin'] = $host;
-			$response->headers['WebSocket-Location'] = 'ws://' . $host . $request->path;
-			$response->headers['Sec-WebSocket-Version'] = $request->headers['Sec-WebSocket-Version'];
-			$response->headers['Sec-WebSocket-Accept'] = $secAccept;
-			$response->isWebSocket = true;
-			return null;
+			return onWebSocket($request, $response);
 		case '/setcookie':
 			$response->setCookie(
 				$request->get['name'] ?? 'test',
@@ -569,7 +560,6 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 			break;
 		default:
 			if($request->isDav) {
-				$path = __DIR__ . $request->path;
 				switch($request->method) {
 					case 'OPTIONS':
 						$response->headers['Allow'] = 'HEAD, GET, PUT, MKCOL, DELETE';
@@ -604,12 +594,88 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 						}
 						break;
 				}
-			} else {
-				$path = __DIR__ . $request->path;
 			}
+			return onMediaFile($request, $response, __DIR__ . $request->path);
 			break;
 	}
+}
 
+function onWebSocket(HttpRequest $request, HttpResponse $response): ?string {
+	if(!isset($request->headers['Upgrade'], $request->headers['Sec-WebSocket-Key'], $request->headers['Sec-WebSocket-Version']) || empty($request->headers['Sec-WebSocket-Key']) || $request->headers['Upgrade'] !== 'websocket') {
+		$response->status = 404;
+		$response->statusText = 'Not Found';
+		return '<h1>Not Found</h1>';
+	}
+	$host = $request->headers['Host'] ?? '127.0.0.1:5000';
+	$secAccept = base64_encode(pack('H*', sha1($request->headers['Sec-WebSocket-Key'] . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')));
+	$response->status = 101;
+	$response->statusText = 'Web Socket Protocol Handshake';
+	$response->headers['Upgrade'] = 'websocket';
+	$response->headers['Connection'] = 'Upgrade';
+	$response->headers['WebSocket-Origin'] = $host;
+	$response->headers['WebSocket-Location'] = 'ws://' . $host . $request->path;
+	$response->headers['Sec-WebSocket-Version'] = $request->headers['Sec-WebSocket-Version'];
+	$response->headers['Sec-WebSocket-Accept'] = $secAccept;
+	$response->isWebSocket = true;
+	return null;
+}
+
+function onMediaFile(HttpRequest $request, HttpResponse $response, string $path, bool $isDir = true): ?string {
+	static $MIME_TYPES = [
+		'txt' => 'text/plain',
+		'htm' => 'text/html',
+		'html' => 'text/html',
+		'php' => 'text/html',
+		'css' => 'text/css',
+		'js' => 'text/javascript',
+		'json' => 'application/json',
+		'xml' => 'application/xml',
+		'swf' => 'application/x-shockwave-flash',
+		'flv' => 'video/x-flv',
+		
+		// images
+		'png' => 'image/png',
+		'jpe' => 'image/jpeg',
+		'jpeg' => 'image/jpeg',
+		'jpg' => 'image/jpeg',
+		'gif' => 'image/gif',
+		'bmp' => 'image/bmp',
+		'ico' => 'image/vnd.microsoft.icon',
+		'tiff' => 'image/tiff',
+		'tif' => 'image/tiff',
+		'svg' => 'image/svg+xml',
+		'svgz' => 'image/svg+xml',
+		
+		// archives
+		'zip' => 'application/zip',
+		'rar' => 'application/x-rar-compressed',
+		'exe' => 'application/x-msdownload',
+		'msi' => 'application/x-msdownload',
+		'cab' => 'application/vnd.ms-cab-compressed',
+		
+		// audio/video
+		'mp3' => 'audio/mpeg',
+		'qt' => 'video/quicktime',
+		'mov' => 'video/quicktime',
+		
+		// adobe
+		'pdf' => 'application/pdf',
+		'psd' => 'image/vnd.adobe.photoshop',
+		'ai' => 'application/postscript',
+		'eps' => 'application/postscript',
+		'ps' => 'application/postscript',
+		
+		// ms office
+		'doc' => 'application/msword',
+		'rtf' => 'application/rtf',
+		'xls' => 'application/vnd.ms-excel',
+		'ppt' => 'application/vnd.ms-powerpoint',
+		
+		// open office
+		'odt' => 'application/vnd.oasis.opendocument.text',
+		'ods' => 'application/vnd.oasis.opendocument.spreadsheet',
+	];
+	
 	switch($request->method) {
 		case 'OPTIONS':
 			$response->headers['Allow'] = 'HEAD, GET';
@@ -625,6 +691,8 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 	}
 
 	if(is_dir($path)) {
+		if(!$isDir) goto end404;
+		
 		$files = [];
 		$_path = rtrim($request->path, '/') . '/';
 		if(($dh = @opendir($path)) !== false) {
@@ -741,7 +809,7 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 		}
 
 		if(($fp = @fopen($path, 'rb+')) !== false) {
-			$response->setContentType(@mime_content_type($path) ?: 'application/octet-stream');
+			$response->setContentType($MIME_TYPES[pathinfo($path, PATHINFO_EXTENSION)] ?? 'application/octet-stream');
 			$stat = @fstat($fp);
 			if($stat === false) {
 				fclose($fp);
@@ -897,6 +965,7 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 		}
 		return null;
 	} else {
+	end404:
 		$response->status = 404;
 		$response->statusText = 'Not Found';
 		
@@ -975,6 +1044,8 @@ class HttpRequest {
 	public $isHTTP = false;
 
 	public $path = null;
+	public $query = null;
+	public $fragment = null;
 	public $get = [];
 
 	public $headers = [];
@@ -1085,7 +1156,11 @@ class HttpRequest {
 							$this->isHTTP = preg_match('/HTTP\/1\.[01]/', $this->protocol) > 0;
 						}
 						if(isset($uri['query'])) {
+							$this->query = $uri['query'];
 							parse_str($uri['query'], $this->get);
+						}
+						if(isset($uri['fragment'])) {
+							$this->fragment = $uri['fragment'];
 						}
 						$i = $pos + 2;
 						$this->mode = self::MODE_HEAD;
@@ -1388,7 +1463,7 @@ class HttpResponse {
 	
 	public function setRawCookie(string $name, ?string $value, int $expires = 0, string $path = '', string $domain = '', bool $secure = false, bool $httponly = false, string $samesite = '') {
 		if($value === null || $value === '') {
-			$expire = gmdate('D, d-M-Y H:i:s T', 0);
+			$expire = gmdate('D, d-M-Y H:i:s T', 1);
 			$cookie = "$name=deleted; expires=$expire; Max-Age=0";
 		} else {
 			$cookie = "$name=$value";
@@ -1398,12 +1473,12 @@ class HttpResponse {
 				if($diff < 0) $diff = 0;
 				$cookie .= "; Max-Age=$diff";
 			}
-			if($path !== '') $cookie .= "; path=$path";
-			if($domain !== '') $cookie .= "; domain=$domain";
-			if($secure) $cookie .= "; secure";
-			if($httponly) $cookie .= "; HttpOnly";
-			if($samesite !== '') $cookie .= "; SameSite=$samesite";
 		}
+		if($path !== '') $cookie .= "; path=$path";
+		if($domain !== '') $cookie .= "; domain=$domain";
+		if($secure) $cookie .= "; secure";
+		if($httponly) $cookie .= "; HttpOnly";
+		if($samesite !== '') $cookie .= "; SameSite=$samesite";
 		$this->headers['Set-Cookie'][] = $cookie;
 	}
 	
