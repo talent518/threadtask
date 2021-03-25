@@ -137,5 +137,41 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
   * SIGUSR2: 重载配置(reload)
 * 过期共享变量: ./threadtask expire.php
 * TCP服务: ./threadtask socket.php
-* HTTP服务: ./threadtask http-server.php
+* HTTP服务(两种方式启动HTTP服务命令):
+  1. 需要pcntl+sockets扩展: ./threadtask http-server.php [&lt;host&gt; [&lt;port&gt; [flag]]]
+  2. 需要pcntl+libevent+sockets扩展: ./threadtask http-server-event.php [&lt;host&gt; [&lt;port&gt; [flag]]]
+  ** 参数说明 **
+    * host: IP地址
+    * port: 监听端口号
+    * flag: 非0时每次连接使用create_task创建一次任务，否则默认启动100个常驻任务处理连接，当超过时进行非0时的启动任务。
+* yii-app-basic(在yii-app目录执行该命令来启动HTTP服务): ../threadtask http-server.php
+  * mysql的test数据库创建，如下：
+```sql
+CREATE DATABASE IF NOT EXISTS `test` DEFAULT CHARSET=utf8;
+CREATE TABLE `test`.`user` (
+  `uid` int(11) NOT NULL AUTO_INCREMENT,
+  `username` varchar(20) NOT NULL,
+  `email` varchar(100) NOT NULL,
+  `password` varchar(32) NOT NULL,
+  `salt` varchar(8) NOT NULL,
+  `registerTime` datetime NOT NULL,
+  `loginTime` datetime DEFAULT NULL,
+  `loginTimes` int(11) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`uid`),
+  UNIQUE KEY `username` (`username`),
+  UNIQUE KEY `email` (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+INSERT INTO `test`.`user` VALUES
+  (1,'admin','admin@test.com','cb13131a512ff854c8bc0dc0ba04e4db','12345678','2019-10-14 22:13:55','2021-03-24 14:49:48',7),
+  (2,'test','test@test.com','0ee08e4a9e574f4afa0abfb5ca4e47f8','87654321','2019-10-14 22:13:55','2021-03-24 08:37:56',1),
+  (3,'test2','test2@test.com','66b5a5d70de6e691aa9e011eb40bf62c','853532e8','2019-10-16 20:29:18',NULL,0),
+  (4,'test3','test3@test.com','093865fe1fc39dedc288275781c12bfe','d03db269','2019-10-16 20:30:10',NULL,0),
+  (5,'test4','test4@test.con','94e5d07b62a291858b6cdc902c30f924','cf34c642','2021-03-24 06:40:52','2021-03-24 08:13:17',1),
+  (6,'test5','test5@test.com','178a46704b93cd1a6468fe81fc66ae55','f66966f9','2021-03-24 08:17:16','2021-03-24 08:17:54',1);
+/* 所有用户的密码都是123456 */
+```
+  * 使用ab进行压力测试，结果如下：ab -n 5000 -c 100 -k -l http://127.0.0.1:5000/site/user
+    * apache+php+mysql+redis: 5000个请求总用14.264秒，吞吐量350.53，内存占用竟然超过了5G，如果apache使用mpm_event_module和php ZTS的话，两者内存占用基本一致
+    * threadtask+php+mysql: 5000个请求总用4.354秒，吞吐量1148.33，内存占用665.07MB
+    * 总结：使用threadtask性能提升了2倍以上，效果很佳
 
