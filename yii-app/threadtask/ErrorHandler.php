@@ -67,5 +67,9 @@ class ErrorHandler extends \yii\web\ErrorHandler {
 		}
 		error_log($msg);
 	}
-	
+
+	public function renderRequest() {
+		return '<pre>' . $this->htmlEncode(VarDumper::dump(\Yii::$app->getRequest()->request, 4, true)) . '</pre>';
+	}
+
 }
