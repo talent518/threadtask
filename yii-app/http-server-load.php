@@ -1,4 +1,6 @@
 <?php
+use yii\base\ExitException;
+
 // defined('YII_DEBUG') or define('YII_DEBUG', true);
 // defined('YII_ENV') or define('YII_ENV', 'dev');
 
@@ -27,6 +29,12 @@ $onRequest = function(HttpRequest $request, HttpResponse $response) use(&$app, $
 		$config['components']['request']['request'] = $request;
 		$config['components']['response']['response'] = $response;
 		
+		$displayErrors = ini_set('display_errors', false);
+		set_error_handler(function($code, $message, $file, $line) {
+			if(error_reporting() & $code) throw new ErrorException($message, $code, $code, $file, $line);
+			return false;
+		});
+		
 // 		if(Yii::$app) {
 // 			Yii::$app->set('request', $config['components']['request']);
 // 			Yii::$app->set('response', $config['components']['response']);
@@ -36,21 +44,27 @@ $onRequest = function(HttpRequest $request, HttpResponse $response) use(&$app, $
 			if($db) $config['components']['db'] = $db;
 			(new app\threadtask\Application($config))->run();
 // 		}
-	} catch(\Error $e) {
-		$response->status = 500;
-		$response->statusText = 'Internal Server Error';
-		$response->setContentType('text/plain; charset=utf-8');
-		return (string) $e;
-	} catch(\Exception $e) {
-		$response->status = 500;
-		$response->statusText = 'Internal Server Error';
-		$response->setContentType('text/plain; charset=utf-8');
-		return (string) $e;
+	} catch(ExitException $e) {
 	} catch(\ExitRequest $e) {
-		return null;
+		return $e->getMessage();
+	} catch(\Throwable $e) {
+		if(\Yii::$app && ($errorHandler = \Yii::$app->get('errorHandler', false))) {
+			$errorHandler->handleException($e);
+			return null;
+		}
+		
+		$response->status = 500;
+		$response->statusText = 'Internal Server Error';
+		$response->setContentType('text/plain; charset=utf-8');
+		if(YII_DEBUG) {
+			return (string) $e;
+		} else {
+			echo "$e\n";
+			return 'An internal server error occurred.';
+		}
 	} finally {
 // 		unset($config['components']['request']['request'], $config['components']['response']);
-		
+
 // 		Yii::$app->set('request', $config['components']['request']);
 // 		Yii::$app->set('response', $config['components']['response']);
 // 		Yii::$app->set('session', $config['components']['session']);
@@ -60,7 +74,11 @@ $onRequest = function(HttpRequest $request, HttpResponse $response) use(&$app, $
 		}
 		
 		call_and_free_shutdown();
+		error_clear_last();
 		Yii::$app = null;
+		
+		restore_error_handler();
+		ini_set('display_errors', $displayErrors);
 	}
 	return null;
 };
