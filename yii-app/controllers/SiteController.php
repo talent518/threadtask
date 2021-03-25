@@ -133,7 +133,12 @@ class SiteController extends Controller
     	\Yii::$app->user->logout();
     	return $this->asJson([\Yii::$app->request->cookies->toArray(), $session->id, $session->iterator]);
     }
+
     public function actionUser() {
     	return $this->asJson(User::find()->all());
+    }
+
+    public function actionErr() {
+    	return $this->asJson($a);
     }
 }
