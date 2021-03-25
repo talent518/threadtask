@@ -175,3 +175,12 @@ INSERT INTO `test`.`user` VALUES
     * threadtask+php+mysql: 5000个请求总用4.354秒，吞吐量1148.33，内存占用665.07MB
     * 总结：使用threadtask性能提升了2倍以上，效果很佳
 
+### v2.0开发计划
+  * SocketServer: TCP+UDP协议服务类
+  * HttpServer: HTTP+WebSocket服务类
+  * HttpRequest: HTTP请求类
+  * HttpResponse: HTTP响应类
+  * TsVar: 线程间变量共享类
+  * Queue：消息队列类
+  * ThreadPool: 线程池任务控制类
+  * ThreadTask: 线程任务类
