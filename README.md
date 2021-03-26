@@ -1,5 +1,5 @@
 # threadtask
-php多线程任务，优点是占用内存少且稳定，对于并行任务处理也有另活的应用。
+php多线程任务，优点是占用内存少且稳定，对于并行任务处理也有灵活的应用。
 
 ### 编译并运行实例代码
 * php线程安全模式的编译配置为 --enable-maintainer-zts --with-tsrm-pthreads **php8: --enable-zts**
