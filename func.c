@@ -593,7 +593,7 @@ static PHP_FUNCTION(task_wait) {
 		isReload = 1;
 	}
 	isRun = 0;
-	dprintf("TASK_WAIT\n");
+	dprintf("TASK_WAIT begin\n");
 
 	pthread_mutex_lock(&nlock);
 	for(i=0; i<threads; i++) sem_post(&rsem);
@@ -610,6 +610,8 @@ static PHP_FUNCTION(task_wait) {
 		pthread_cond_wait(&ncond, &nlock);
 	}
 	pthread_mutex_unlock(&nlock);
+	
+	dprintf("TASK_WAIT end\n");
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_task_set_delay, 0)
@@ -2878,6 +2880,22 @@ static PHP_FUNCTION(socket_accept_ex) {
 }
 
 // ===========================================================================================================
+
+#ifndef GC_PROTECT_RECURSION
+#define GC_PROTECT_RECURSION(ht) (ht)->u.v.nApplyCount++
+#endif
+#ifndef GC_UNPROTECT_RECURSION
+#define GC_UNPROTECT_RECURSION(ht) (ht)->u.v.nApplyCount--
+#endif
+#ifndef Z_IS_RECURSIVE_P
+#define Z_IS_RECURSIVE_P(val) Z_ARRVAL_P(val)->u.v.nApplyCount > 0
+#endif
+#ifndef ZEND_CONSTANT_SET_FLAGS
+#define ZEND_CONSTANT_SET_FLAGS(c,f,fx) do {\
+	(c)->flags = f;\
+	(c)->module_number = fx;\
+} while(0)
+#endif
 
 static int validate_constant_array(HashTable *ht) /* {{{ */
 {
