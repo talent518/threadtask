@@ -71,7 +71,7 @@ class Session extends Component implements \IteratorAggregate, \ArrayAccess, \Co
 	}
 	
 	public function offsetGet($offset) {
-		ts_var_get($this->var, $offset);
+		return ts_var_get($this->var, $offset);
 	}
 
 	public function getIterator() {
