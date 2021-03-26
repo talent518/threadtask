@@ -26,6 +26,7 @@
 #include <standard/info.h>
 #include <php_network.h>
 #include <sockets/php_sockets.h>
+#include <zend_exceptions.h>
 
 #include "func.h"
 #include "hash.h"
@@ -767,13 +768,72 @@ static PHP_FUNCTION(pthread_sigmask) {
 
 // ===========================================================================================================
 
+ZEND_BEGIN_ARG_INFO_EX(arginfo_go, 0, 0, 1)
+ZEND_ARG_INFO(0, function_name)
+ZEND_ARG_VARIADIC_INFO(0, parameters)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(go) {
+	zval retval;
+    zend_fcall_info fci; 
+    zend_fcall_info_cache fci_cache;
+
+    ZEND_PARSE_PARAMETERS_START(1, -1)
+        Z_PARAM_FUNC(fci, fci_cache)
+        Z_PARAM_VARIADIC('*', fci.params, fci.param_count)
+    ZEND_PARSE_PARAMETERS_END();
+
+    fci.retval = &retval;
+
+	zend_try {
+		if (zend_call_function(&fci, &fci_cache) == SUCCESS && Z_TYPE(retval) != IS_UNDEF) {
+		    if (Z_ISREF(retval)) {
+		        zend_unwrap_reference(&retval);
+		    }
+		    ZVAL_COPY_VALUE(return_value, &retval);
+		}
+    } zend_catch {
+        PG(last_error_type) = 0; 
+        PG(last_error_lineno) = 0; 
+
+        if(PG(last_error_message)) {
+            free(PG(last_error_message));
+            PG(last_error_message) = NULL;
+        }
+
+        if (PG(last_error_file)) {
+            free(PG(last_error_file));
+            PG(last_error_file) = NULL;
+        }
+
+        EG(exit_status) = 0;
+	} zend_end_try();
+
+	if(EG(exception)) zend_try {
+		zend_exception_error(EG(exception), E_ERROR);
+    } zend_catch {
+        EG(exit_status) = 0;
+	} zend_end_try();
+
+	if(EG(prev_exception)) zend_try {
+		zend_exception_error(EG(prev_exception), E_ERROR);
+    } zend_catch {
+        EG(exit_status) = 0;
+	} zend_end_try();
+
+	zend_clear_exception();
+}
+
 ZEND_BEGIN_ARG_INFO(arginfo_call_and_free_shutdown, 0)
 ZEND_END_ARG_INFO()
 
 static PHP_FUNCTION(call_and_free_shutdown) {
 	ZEND_PARSE_PARAMETERS_NONE();
 
-	php_call_shutdown_functions();
+	zend_try {
+		php_call_shutdown_functions();
+	} zend_end_try();
+
 	php_free_shutdown_functions();
 }
 
@@ -2835,6 +2895,7 @@ static const zend_function_entry ext_functions[] = {
 	ZEND_FE(task_set_run, arginfo_task_set_run)
 	ZEND_FE(pthread_sigmask, arginfo_pthread_sigmask)
 
+	ZEND_FE(go, arginfo_go)
 	ZEND_FE(call_and_free_shutdown, arginfo_call_and_free_shutdown)
 
 	ZEND_FE(set_timeout, arginfo_set_timeout)

@@ -48,7 +48,7 @@ class Request extends \yii\web\Request {
 				$this->_queryParams = $params + $this->_queryParams;
 			}
 			
-			return [$route, $this->getQueryParams()];
+			return [$route, $this->getQueryParams() + $this->getBodyParams()];
 		}
 		
 		throw new NotFoundHttpException(\Yii::t('yii', 'Page not found.'));
@@ -244,7 +244,6 @@ class Request extends \yii\web\Request {
 		
 		return [null, null];
 	}
-	
 	
 	/**
 	 * @inheritdoc

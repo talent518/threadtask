@@ -124,6 +124,10 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
   * $signal: 向任务线程发送的信号，使用 pcntrl_signal()函数绑定信号处理函数
 * 示例: http-server.php中有使用
 
+#### 6. PHP行为函数
+* go: go(is_callable $call, $args...): mixed
+* 调用并清除由register_shutdown_function注册的php中止函数: call_and_free_shutdown()
+
 ### 常量
 * THREAD_TASK_NAME: string 任务名
 

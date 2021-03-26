@@ -272,7 +272,7 @@ if(defined('THREAD_TASK_NAME')) {
 					} else {
 						$response->headers['Connection'] = 'close';
 					}
-					if($response->end($onRequest($request, $response))) {
+					if($response->end(go($onRequest, $request, $response))) {
 						ts_var_inc($statres, 'success', 1);
 
 						if($response->isWebSocket) {
@@ -335,7 +335,7 @@ if(defined('THREAD_TASK_NAME')) {
 				} else {
 					$response->headers['Connection'] = 'close';
 				}
-				if($response->end($onRequest($request, $response))) {
+				if($response->end(go($onRequest, $request, $response))) {
 					ts_var_inc($statres, 'success', 1);
 					
 					if($response->isWebSocket) {
@@ -1105,6 +1105,12 @@ class HttpRequest {
 			fclose($this->fp);
 			$this->fp = null;
 		}
+		
+		foreach($this->files as $file) {
+			@unlink($file['path']);
+		}
+		
+		$this->unregisterVars();
 	}
 	
 	public function setFp($fp) {
@@ -1198,7 +1204,7 @@ class HttpRequest {
 							}
 						}
 						
-						if(($onBody = $this->onBody) !== null && !$onBody($this)) {
+						if(($onBody = $this->onBody) !== null && !go($onBody, $this)) {
 							return null;
 						}
 
@@ -1399,6 +1405,56 @@ class HttpRequest {
 		} else {
 			strerror('socket_send', false);
 			return false;
+		}
+	}
+	
+	private $vars;
+	public function registerVars() {
+		if($this->vars !== null) return;
+		
+		$this->vars = $_SERVER;
+		
+		if(!socket_getsockname($this->fd, $addr, $port)) {
+			$addr = '127.0.0.1';
+			$port = 5000;
+		}
+		$_SERVER['SERVER_ADDR'] = $_SERVER['SERVER_NAME'] = $addr;
+		$_SERVER['SERVER_PORT'] = $port;
+		$_SERVER['REMOTE_ADDR'] = $this->clientAddr;
+		$_SERVER['SERVER_PORT'] = $this->clientPort;
+		foreach($this->headers as $key=>$val) {
+			$_SERVER['HTTP_' . preg_replace('/[^_A-Z0-9]+/', '_', strtoupper($key))] = $val;
+		}
+		if(isset($_SERVER['HTTP_CONTENT_TYPE'])) {
+			$_SERVER['CONTENT_TYPE'] = $_SERVER['HTTP_CONTENT_TYPE'];
+			unset($_SERVER['HTTP_CONTENT_TYPE']);
+		}
+		$_SERVER['SERVER_PROTOCOL'] = $this->protocol;
+		$_SERVER['REQUEST_METHOD'] = $this->method;
+		$_SERVER['REQUEST_URI'] = $this->uri;
+		$_SERVER['QUERY_STRING'] = $this->query??'';
+		
+		$_GET = $this->get;
+		$_POST = $this->post;
+		$_COOKIE = $this->cookies;
+		
+		foreach($this->files as $name=>$file) {
+			clearstatcache(true, $file['path']);
+			$_FILES[$name] = [
+				'name'=>$file['name'],
+				'type'=>$file['type'],
+				'size'=>filesize($file['path']),
+				'tmp_name'=>$file['path'],
+				'error'=>0,
+			];
+		}
+	}
+	
+	protected function unregisterVars() {
+		if($this->vars !== null) {
+			$_SERVER = $this->vars;
+			$_GET = $_POST = $_FILES = $_COOKIE = [];
+			$this->vars = null;
 		}
 	}
 }

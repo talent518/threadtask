@@ -26,6 +26,7 @@ $onRequest = function(HttpRequest $request, HttpResponse $response) use(&$app, $
 	}
 	
 	try {
+		$request->registerVars();
 		$config['components']['request']['request'] = $request;
 		$config['components']['response']['response'] = $response;
 		
@@ -35,15 +36,8 @@ $onRequest = function(HttpRequest $request, HttpResponse $response) use(&$app, $
 			return false;
 		});
 		
-// 		if(Yii::$app) {
-// 			Yii::$app->set('request', $config['components']['request']);
-// 			Yii::$app->set('response', $config['components']['response']);
-// 			Yii::$app->init();
-// 			Yii::$app->run();
-// 		} else {
-			if($db) $config['components']['db'] = $db;
-			(new app\threadtask\Application($config))->run();
-// 		}
+		if($db) $config['components']['db'] = $db;
+		(new app\threadtask\Application($config))->run();
 	} catch(ExitException $e) {
 	} catch(\ExitRequest $e) {
 		return $e->getMessage();
@@ -63,12 +57,6 @@ $onRequest = function(HttpRequest $request, HttpResponse $response) use(&$app, $
 			return 'An internal server error occurred.';
 		}
 	} finally {
-// 		unset($config['components']['request']['request'], $config['components']['response']);
-
-// 		Yii::$app->set('request', $config['components']['request']);
-// 		Yii::$app->set('response', $config['components']['response']);
-// 		Yii::$app->set('session', $config['components']['session']);
-
 		if(!$db && Yii::$app && Yii::$app->has('db', true)) {
 			$db = Yii::$app->getDb();
 		}
