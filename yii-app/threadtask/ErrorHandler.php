@@ -47,10 +47,10 @@ class ErrorHandler extends \yii\web\ErrorHandler {
 		$msg .= "\nPrevious exception:\n";
 		$msg .= (string) $previousException;
 		
+		$response = \Yii::$app->getResponse();
 		$request = VarDumper::export(\Yii::$app->getRequest()->request);
 		if (YII_DEBUG) {
 			$msg .= "\n\$request = $request";
-			$response = \Yii::$app->getResponse();
 			if($response->isSent) {
 				echo "\n$msg\n";
 			} else {
