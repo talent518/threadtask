@@ -63,6 +63,7 @@ $onRequest = function(HttpRequest $request, HttpResponse $response) use(&$app, $
 		
 		call_and_free_shutdown();
 		error_clear_last();
+		\Yii::getLogger()->flush(true);
 		Yii::$app = null;
 		
 		restore_error_handler();
