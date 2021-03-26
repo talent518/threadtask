@@ -222,6 +222,8 @@ if(defined('THREAD_TASK_NAME')) {
 		//$sock = socket_import_fd((int) $_SERVER['argv'][1]);
 		$sock = (int) $_SERVER['argv'][1];
 		$flag = (bool) $_SERVER['argv'][2];
+		$_host = $_SERVER['argv'][3];
+		$_port = $_SERVER['argv'][4];
 		$wfd = ts_var_fd($aptres, true);
 
 		while($running && ($fd = @socket_accept_ex($sock, $addr, $port)) !== false) {
@@ -230,7 +232,7 @@ if(defined('THREAD_TASK_NAME')) {
 			$fd = socket_export_fd($fd, true);
 			ts_var_set($aptres, $i, [$fd,$addr,$port]);
 			if($flag || ts_var_inc($statres, 'accept', -1) < 0) {
-				create_task('read' . $i, __FILE__, [1]);
+				create_task('read' . $i, __FILE__, [1,$_host,$_port]);
 				if(!$flag) ts_var_inc($statres, 'accept', 1);
 			} else @socket_write($wfd, 'a', 1);
 		}
@@ -240,6 +242,9 @@ if(defined('THREAD_TASK_NAME')) {
 
 		//echo THREAD_TASK_NAME . " Closed\n";
 	} elseif(empty($_SERVER['argv'][1])) {
+		$_SERVER['SERVER_ADDR'] = $_SERVER['SERVER_NAME'] = $_SERVER['argv'][2];
+		$_SERVER['SERVER_PORT'] = $_SERVER['argv'][3];
+
 		is_file('http-server-load.php') and require('http-server-load.php');
 		
 		$rfd = ts_var_fd($aptres);
@@ -310,6 +315,9 @@ if(defined('THREAD_TASK_NAME')) {
 
 		//echo THREAD_TASK_NAME . " Closed\n";
 	} else {
+		$_SERVER['SERVER_ADDR'] = $_SERVER['SERVER_NAME'] = $_SERVER['argv'][2];
+		$_SERVER['SERVER_PORT'] = $_SERVER['argv'][3];
+
 		is_file('http-server-load.php') and require('http-server-load.php');
 
 		list($fd, $addr, $port) = ts_var_shift($aptres);
@@ -385,8 +393,8 @@ if(defined('THREAD_TASK_NAME')) {
 	$wsres = ts_var_declare('wsres', null, true);
 
 	create_task('ws', __FILE__, []);
-	if(!$flag) for($i=0; $i<100; $i++) create_task('read' . $i, __FILE__, []);
-	for($i=0; $i<4; $i++) create_task('accept' . $i, __FILE__, [$fd,$flag]);
+	if(!$flag) for($i=0; $i<100; $i++) create_task('read' . $i, __FILE__, [0,$host,$port]);
+	for($i=0; $i<4; $i++) create_task('accept' . $i, __FILE__, [$fd,$flag,$host,$port]);
 
 	$n = $ns = $ne = 0;
 	while($running) {
@@ -1414,12 +1422,6 @@ class HttpRequest {
 		
 		$this->vars = $_SERVER;
 		
-		if(!socket_getsockname($this->fd, $addr, $port)) {
-			$addr = '127.0.0.1';
-			$port = 5000;
-		}
-		$_SERVER['SERVER_ADDR'] = $_SERVER['SERVER_NAME'] = $addr;
-		$_SERVER['SERVER_PORT'] = $port;
 		$_SERVER['REMOTE_ADDR'] = $this->clientAddr;
 		$_SERVER['SERVER_PORT'] = $this->clientPort;
 		foreach($this->headers as $key=>$val) {
