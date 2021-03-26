@@ -127,6 +127,7 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
 #### 6. PHP行为函数
 * go: go(is_callable $call, $args...): mixed
 * 调用并清除由register_shutdown_function注册的php中止函数: call_and_free_shutdown()
+* 重新定义常量：redefine(string $name, mixed $value, bool $case_insensitive)
 
 ### 常量
 * THREAD_TASK_NAME: string 任务名

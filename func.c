@@ -2879,6 +2879,169 @@ static PHP_FUNCTION(socket_accept_ex) {
 
 // ===========================================================================================================
 
+static int validate_constant_array(HashTable *ht) /* {{{ */
+{
+	int ret = 1;
+	zval *val;
+
+	GC_PROTECT_RECURSION(ht);
+	ZEND_HASH_FOREACH_VAL_IND(ht, val) {
+		ZVAL_DEREF(val);
+		if (Z_REFCOUNTED_P(val)) {
+			if (Z_TYPE_P(val) == IS_ARRAY) {
+				if (Z_REFCOUNTED_P(val)) {
+					if (Z_IS_RECURSIVE_P(val)) {
+						zend_error(E_WARNING, "Constants cannot be recursive arrays");
+						ret = 0;
+						break;
+					} else if (!validate_constant_array(Z_ARRVAL_P(val))) {
+						ret = 0;
+						break;
+					}
+				}
+			} else if (Z_TYPE_P(val) != IS_STRING && Z_TYPE_P(val) != IS_RESOURCE) {
+				zend_error(E_WARNING, "Constants may only evaluate to scalar values, arrays or resources");
+				ret = 0;
+				break;
+			}
+		}
+	} ZEND_HASH_FOREACH_END();
+	GC_UNPROTECT_RECURSION(ht);
+	return ret;
+}
+/* }}} */
+
+static void copy_constant_array(zval *dst, zval *src) /* {{{ */
+{
+	zend_string *key;
+	zend_ulong idx;
+	zval *new_val, *val;
+
+	array_init_size(dst, zend_hash_num_elements(Z_ARRVAL_P(src)));
+	ZEND_HASH_FOREACH_KEY_VAL_IND(Z_ARRVAL_P(src), idx, key, val) {
+		/* constant arrays can't contain references */
+		ZVAL_DEREF(val);
+		if (key) {
+			new_val = zend_hash_add_new(Z_ARRVAL_P(dst), key, val);
+		} else {
+			new_val = zend_hash_index_add_new(Z_ARRVAL_P(dst), idx, val);
+		}
+		if (Z_TYPE_P(val) == IS_ARRAY) {
+			if (Z_REFCOUNTED_P(val)) {
+				copy_constant_array(new_val, val);
+			}
+		} else {
+			Z_TRY_ADDREF_P(val);
+		}
+	} ZEND_HASH_FOREACH_END();
+}
+/* }}} */
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_redefine, 0, 0, 2)
+    ZEND_ARG_INFO(0, constant_name)
+    ZEND_ARG_INFO(0, value)
+    ZEND_ARG_INFO(0, case_insensitive)
+ZEND_END_ARG_INFO()
+
+PHP_FUNCTION(redefine) /* {{{ */
+{
+	zend_string *name;
+	zval *val, val_free;
+	zend_bool non_cs = 0;
+	int case_sensitive = CONST_CS;
+	zend_constant c;
+
+	ZEND_PARSE_PARAMETERS_START(2, 3)
+		Z_PARAM_STR(name)
+		Z_PARAM_ZVAL(val)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_BOOL(non_cs)
+	ZEND_PARSE_PARAMETERS_END();
+
+	if (non_cs) {
+		case_sensitive = 0;
+	}
+
+	if (zend_memnstr(ZSTR_VAL(name), "::", sizeof("::") - 1, ZSTR_VAL(name) + ZSTR_LEN(name))) {
+		zend_error(E_WARNING, "Class constants cannot be defined or redefined");
+		RETURN_FALSE;
+	}
+
+	ZVAL_UNDEF(&val_free);
+
+repeat:
+	switch (Z_TYPE_P(val)) {
+		case IS_LONG:
+		case IS_DOUBLE:
+		case IS_STRING:
+		case IS_FALSE:
+		case IS_TRUE:
+		case IS_NULL:
+		case IS_RESOURCE:
+			break;
+		case IS_ARRAY:
+			if (Z_REFCOUNTED_P(val)) {
+				if (!validate_constant_array(Z_ARRVAL_P(val))) {
+					RETURN_FALSE;
+				} else {
+					copy_constant_array(&c.value, val);
+					goto register_constant;
+				}
+			}
+			break;
+		case IS_OBJECT:
+		#if PHP_VERSION_ID >= 80000
+			if (Z_OBJ_HT_P(val)->cast_object(Z_OBJ_P(val), &val_free, IS_STRING) == SUCCESS) {
+				val = &val_free;
+				break;
+			}
+		#else
+			if (Z_TYPE(val_free) == IS_UNDEF) {
+				if (Z_OBJ_HT_P(val)->get) {
+					val = Z_OBJ_HT_P(val)->get(val, &val_free);
+					goto repeat;
+				} else if (Z_OBJ_HT_P(val)->cast_object) {
+					if (Z_OBJ_HT_P(val)->cast_object(val, &val_free, IS_STRING) == SUCCESS) {
+						val = &val_free;
+						break;
+					}
+				}
+			}
+		#endif
+			/* no break */
+		default:
+			zend_error(E_WARNING, "Constants may only evaluate to scalar values, arrays or resources");
+			zval_ptr_dtor(&val_free);
+			RETURN_FALSE;
+	}
+
+	ZVAL_COPY(&c.value, val);
+	zval_ptr_dtor(&val_free);
+
+register_constant:
+	if (non_cs) {
+		zend_error(E_DEPRECATED,
+			"define(): Declaration of case-insensitive constants is deprecated");
+	}
+
+	zval *zv = zend_get_constant(name);
+	if(zv) {
+		ZVAL_COPY(zv, val);
+		RETURN_TRUE;
+	}
+
+	/* non persistent */
+	ZEND_CONSTANT_SET_FLAGS(&c, case_sensitive, PHP_USER_CONSTANT);
+	c.name = zend_string_copy(name);
+	if (zend_register_constant(&c) == SUCCESS) {
+		RETURN_TRUE;
+	} else {
+		RETURN_FALSE;
+	}
+}
+
+// ===========================================================================================================
+
 static const zend_function_entry ext_functions[] = {
 	ZEND_FE(create_task, arginfo_create_task)
 	ZEND_FE(task_join, arginfo_task_join)
@@ -2897,6 +3060,7 @@ static const zend_function_entry ext_functions[] = {
 
 	ZEND_FE(go, arginfo_go)
 	ZEND_FE(call_and_free_shutdown, arginfo_call_and_free_shutdown)
+	ZEND_FE(redefine, arginfo_redefine)
 
 	ZEND_FE(set_timeout, arginfo_set_timeout)
 	ZEND_FE(clear_timeout, arginfo_clear_timeout)
