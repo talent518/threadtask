@@ -20,8 +20,8 @@ $onBody = function(HttpRequest $request) {
 $onRequest = function(HttpRequest $request, HttpResponse $response) use(&$app, $config) { // return onRequest($request, $response);
 	static $db;
 	
-	if($request->path !== '/' && $request->path !== '.htaccess' && substr($request->path, -4) !== '.php') {
-		$path = __DIR__ . '/web/' . $request->path;
+	if($request->path !== '/' && $request->path !== '/.htaccess' && substr($request->path, -4) !== '.php') {
+		$path = __DIR__ . '/web' . $request->path;
 		if(file_exists($path)) return onMediaFile($request, $response, $path);
 	}
 	
