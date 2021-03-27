@@ -271,7 +271,7 @@ if(defined('THREAD_TASK_NAME')) {
 					} else {
 						$response->headers['Connection'] = 'close';
 					}
-					if($response->end(go($onRequest, $request, $response))) {
+					if($response->end(call($onRequest, $request, $response))) {
 						ts_var_inc($statres, 'success', 1);
 
 						if($response->isWebSocket) {
@@ -337,7 +337,7 @@ if(defined('THREAD_TASK_NAME')) {
 				} else {
 					$response->headers['Connection'] = 'close';
 				}
-				if($response->end(go($onRequest, $request, $response))) {
+				if($response->end(call($onRequest, $request, $response))) {
 					ts_var_inc($statres, 'success', 1);
 					
 					if($response->isWebSocket) {
@@ -468,6 +468,28 @@ function mask(string $txt, int $ctl = 0x81) {
 		return pack('CCn', $ctl, 126, $n) . $txt;
 	else
 		return pack('CCJ', $ctl, 127, $n) . $txt;
+}
+
+function call(callable $call, HttpRequest $request, HttpResponse $response = null) {
+	try {
+		return go($call, $request, $response);
+	} catch(Throwable $e) {
+		$e = (string) $e;
+		error_log("{$request->head}\n$e");
+
+		$ret = ($response ? $e : false);
+		if(!$response) {
+			$response = $request->getResponse();
+		}
+
+		$response->status = 500;
+		$response->statusText = 'Internal Server Error';
+		$response->setContentType('text/plain; charset=utf-8');
+		
+		if(!$ret) $response->end($e);
+
+		return $ret;
+	}
 }
 
 function onBody(HttpRequest $request): bool {
@@ -640,6 +662,8 @@ function onMediaFile(HttpRequest $request, HttpResponse $response, string $path,
 		'xml' => 'application/xml',
 		'swf' => 'application/x-shockwave-flash',
 		'flv' => 'video/x-flv',
+		'woff' => 'font/woff',
+		'woff2' => 'font/woff2',
 		
 		// images
 		'png' => 'image/png',
@@ -648,7 +672,7 @@ function onMediaFile(HttpRequest $request, HttpResponse $response, string $path,
 		'jpg' => 'image/jpeg',
 		'gif' => 'image/gif',
 		'bmp' => 'image/bmp',
-		'ico' => 'image/vnd.microsoft.icon',
+		'ico' => 'image/x-icon',
 		'tiff' => 'image/tiff',
 		'tif' => 'image/tiff',
 		'svg' => 'image/svg+xml',
@@ -816,8 +840,9 @@ function onMediaFile(HttpRequest $request, HttpResponse $response, string $path,
 			return ($buf = highlight_file($path, true)) === false ? null : $buf;
 		}
 
-		if(($fp = @fopen($path, 'rb+')) !== false) {
-			$response->setContentType($MIME_TYPES[pathinfo($path, PATHINFO_EXTENSION)] ?? 'application/octet-stream');
+		if(($fp = @fopen($path, 'r')) !== false) {
+			$ext = pathinfo($path, PATHINFO_EXTENSION);
+			if(isset($MIME_TYPES[$ext])) $response->setContentType($MIME_TYPES[$ext]); else unset($response->headers['Content-Type']);
 			$stat = @fstat($fp);
 			if($stat === false) {
 				fclose($fp);
@@ -970,8 +995,10 @@ function onMediaFile(HttpRequest $request, HttpResponse $response, string $path,
 				}
 			}
 			@fclose($fp);
+			return null;
+		} else {
+			goto end404;
 		}
-		return null;
 	} else {
 	end404:
 		$response->status = 404;
@@ -1211,7 +1238,7 @@ class HttpRequest {
 							}
 						}
 						
-						if(($onBody = $this->onBody) !== null && !go($onBody, $this)) {
+						if(($onBody = $this->onBody) !== null && !call($onBody, $this)) {
 							return null;
 						}
 

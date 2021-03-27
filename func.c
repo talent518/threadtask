@@ -782,7 +782,11 @@ static PHP_FUNCTION(go) {
 
     ZEND_PARSE_PARAMETERS_START(1, -1)
         Z_PARAM_FUNC(fci, fci_cache)
+	#if PHP_VERSION_ID >= 80000
+		Z_PARAM_VARIADIC_WITH_NAMED(fci.params, fci.param_count, fci.named_params)
+	#else
         Z_PARAM_VARIADIC('*', fci.params, fci.param_count)
+	#endif
     ZEND_PARSE_PARAMETERS_END();
 
     fci.retval = &retval;
@@ -795,35 +799,8 @@ static PHP_FUNCTION(go) {
 		    ZVAL_COPY_VALUE(return_value, &retval);
 		}
     } zend_catch {
-        PG(last_error_type) = 0; 
-        PG(last_error_lineno) = 0; 
-
-        if(PG(last_error_message)) {
-            free(PG(last_error_message));
-            PG(last_error_message) = NULL;
-        }
-
-        if (PG(last_error_file)) {
-            free(PG(last_error_file));
-            PG(last_error_file) = NULL;
-        }
-
         EG(exit_status) = 0;
 	} zend_end_try();
-
-	if(EG(exception)) zend_try {
-		zend_exception_error(EG(exception), E_ERROR);
-    } zend_catch {
-        EG(exit_status) = 0;
-	} zend_end_try();
-
-	if(EG(prev_exception)) zend_try {
-		zend_exception_error(EG(prev_exception), E_ERROR);
-    } zend_catch {
-        EG(exit_status) = 0;
-	} zend_end_try();
-
-	zend_clear_exception();
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_call_and_free_shutdown, 0)
@@ -834,6 +811,8 @@ static PHP_FUNCTION(call_and_free_shutdown) {
 
 	zend_try {
 		php_call_shutdown_functions();
+    } zend_catch {
+        EG(exit_status) = 0;
 	} zend_end_try();
 
 	php_free_shutdown_functions();
