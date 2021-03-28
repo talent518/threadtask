@@ -3,6 +3,7 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
 
 ### 编译并运行实例代码
 * php线程安全模式的编译配置为 --enable-maintainer-zts --with-tsrm-pthreads **php8: --enable-zts**
+* 编译php时要关闭外部gd库，即不能加--with-external-gd选项，可以使用--with-external-gd=no代替也行
 * 运行测试脚本：./threadtask init.php
 * php.ini配置中opcache.protect_memory=0，如果设置为1会导航段错误，原因：这个参数是非线程安全的开关
 * 重启信号SIGUSR1,SIGUSR2: kill -SIGUSR1 pid 或者在init.php中使用task_wait(SIGUSR1)
