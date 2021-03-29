@@ -801,6 +801,10 @@ static PHP_FUNCTION(go) {
     } zend_catch {
         EG(exit_status) = 0;
 	} zend_end_try();
+
+#if PHP_VERSION_ID >= 80000
+	if(EG(exception) && zend_is_unwind_exit(EG(exception))) zend_clear_exception();
+#endif
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_call_and_free_shutdown, 0)
