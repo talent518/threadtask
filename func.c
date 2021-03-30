@@ -157,7 +157,10 @@ void thread_init() {
 	pthread_cond_init(&ncond, NULL);
 	pthread_key_create(&pkey, NULL);
 	pthread_setspecific(pkey, NULL);
-
+#ifdef LOCK_TIMEOUT
+	pthread_key_create(&tskey, ts_table_table_tid_destroy);
+	pthread_setspecific(tskey, NULL);
+#endif
 	pthread_mutex_init(&tlock, NULL);
 
 	ts_hash_table_init(&ts_var, 2);
@@ -167,7 +170,17 @@ void thread_init() {
 }
 
 void thread_running() {
+	PG(display_errors) = 0;
+
+	dprintf("sizeof(HashTable) = %lu\n", sizeof(HashTable));
+	dprintf("sizeof(zval) = %lu\n", sizeof(zval));
+
 	dprintf("sizeof(value_t) = %lu\n", sizeof(value_t));
+	dprintf("sizeof(hash_table_t) = %lu\n", sizeof(hash_table_t));
+	dprintf("sizeof(ts_hash_table_t) = %lu\n", sizeof(ts_hash_table_t));
+	dprintf("sizeof(pthread_t) = %lu\n", sizeof(pthread_t));
+	dprintf("sizeof(pthread_mutex_t) = %lu\n", sizeof(pthread_mutex_t));
+	dprintf("sizeof(pthread_rwlock_t) = %lu\n", sizeof(pthread_rwlock_t));
 }
 
 void thread_destroy() {
@@ -180,6 +193,9 @@ void thread_destroy() {
 
 	pthread_mutex_destroy(&tlock);
 
+#ifdef LOCK_TIMEOUT
+	pthread_key_delete(tskey);
+#endif
 	pthread_key_delete(pkey);
 	pthread_cond_destroy(&ncond);
 	pthread_mutex_destroy(&nlock);
@@ -265,6 +281,10 @@ void *thread_task(task_t *task) {
 
 	sem_wait(&wsem);
 
+#ifdef LOCK_TIMEOUT
+	pthread_setspecific(tskey, NULL);
+#endif
+
 	dprintf("begin thread\n");
 
 newtask:
@@ -292,6 +312,7 @@ newtask:
 
 	SG(headers_sent) = 1;
 	SG(request_info).no_headers = 1;
+	PG(display_errors) = 0;
 
 	zend_register_string_constant(ZEND_STRL("THREAD_TASK_NAME"), task->name, CONST_CS, PHP_USER_CONSTANT);
 
@@ -2151,25 +2172,43 @@ static PHP_FUNCTION(ts_var_declare) {
 		ts_hash_table_ref(ts_ht);
 		ts_hash_table_rd_unlock(ts_ht);
 	} else {
-		ts_hash_table_wr_lock(ts_ht);
 		if(key) {
 			zend_long h = zend_get_hash_value(ZSTR_VAL(key), ZSTR_LEN(key));
-			if(hash_table_quick_find(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v) == FAILURE || v.type != TS_HT_T) {
-				v.type = TS_HT_T;
-				v.ptr = (ts_hash_table_t *) malloc(sizeof(ts_hash_table_t));
-				ts_hash_table_init(v.ptr, 2);
-				hash_table_quick_update(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v, NULL);
+			
+			ts_hash_table_rd_lock(ts_ht);
+			if(hash_table_quick_find(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v) == SUCCESS && v.type == TS_HT_T) {
+				ts_hash_table_ref(v.ptr);
+				ts_hash_table_rd_unlock(ts_ht);
+			} else {
+				ts_hash_table_rd_unlock(ts_ht);
+				ts_hash_table_wr_lock(ts_ht);
+				if(hash_table_quick_find(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v) == FAILURE || v.type != TS_HT_T) {
+					v.type = TS_HT_T;
+					v.ptr = (ts_hash_table_t *) malloc(sizeof(ts_hash_table_t));
+					ts_hash_table_init(v.ptr, 2);
+					hash_table_quick_update(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v, NULL);
+				}
+				ts_hash_table_ref(v.ptr);
+				ts_hash_table_wr_unlock(ts_ht);
 			}
 		} else {
-			if(hash_table_index_find(&ts_ht->ht, index, &v) == FAILURE || v.type != TS_HT_T) {
-				v.type = TS_HT_T;
-				v.ptr = (ts_hash_table_t *) malloc(sizeof(ts_hash_table_t));
-				ts_hash_table_init(v.ptr, 2);
-				hash_table_index_update(&ts_ht->ht, index, &v, NULL);
+			ts_hash_table_rd_lock(ts_ht);
+			if(hash_table_index_find(&ts_ht->ht, index, &v) == SUCCESS && v.type == TS_HT_T) {
+				ts_hash_table_ref(v.ptr);
+				ts_hash_table_rd_unlock(ts_ht);
+			} else {
+				ts_hash_table_rd_unlock(ts_ht);
+				ts_hash_table_wr_lock(ts_ht);
+				if(hash_table_index_find(&ts_ht->ht, index, &v) == FAILURE || v.type != TS_HT_T) {
+					v.type = TS_HT_T;
+					v.ptr = (ts_hash_table_t *) malloc(sizeof(ts_hash_table_t));
+					ts_hash_table_init(v.ptr, 2);
+					hash_table_index_update(&ts_ht->ht, index, &v, NULL);
+				}
+				ts_hash_table_ref(v.ptr);
+				ts_hash_table_wr_unlock(ts_ht);
 			}
 		}
-		ts_hash_table_ref(v.ptr);
-		ts_hash_table_wr_unlock(ts_ht);
 		
 		ts_ht = (ts_hash_table_t*) v.ptr;
 	}
@@ -2479,6 +2518,96 @@ static PHP_FUNCTION(ts_var_get) {
 			}
 		}
 		ts_hash_table_rd_unlock(ts_ht);
+	}
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_ts_var_get_or_set, 3)
+ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 0)
+ZEND_ARG_INFO(0, key)
+ZEND_ARG_INFO(0, callback)
+ZEND_ARG_TYPE_INFO(0, expire, IS_LONG, 0)
+ZEND_ARG_VARIADIC_INFO(0, parameters)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(ts_var_get_or_set) {
+	zval *zv;
+	zend_string *key = NULL;
+	zend_long index = 0;
+
+	zval retval;
+    zend_fcall_info fci;
+    zend_fcall_info_cache fci_cache;
+
+    zend_long expire = 0;
+	
+	ts_hash_table_t *ts_ht;
+	value_t v;
+
+	ZEND_PARSE_PARAMETERS_START(3, -1)
+		Z_PARAM_RESOURCE(zv)
+		Z_PARAM_STR_OR_LONG(key, index)
+        Z_PARAM_FUNC(fci, fci_cache)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_LONG(expire);
+	#if PHP_VERSION_ID >= 80000
+		Z_PARAM_VARIADIC_WITH_NAMED(fci.params, fci.param_count, fci.named_params)
+	#else
+        Z_PARAM_VARIADIC('*', fci.params, fci.param_count)
+	#endif
+	ZEND_PARSE_PARAMETERS_END();
+	
+	if ((ts_ht = (ts_hash_table_t *) zend_fetch_resource_ex(zv, PHP_TS_VAR_DESCRIPTOR, le_ts_var_descriptor)) == NULL) {
+		RETURN_FALSE;
+	}
+	
+	fci.retval = &retval;
+
+	ts_hash_table_rd_lock(ts_ht);
+	if(key) {
+		zend_long h = zend_get_hash_value(ZSTR_VAL(key), ZSTR_LEN(key));
+		if(hash_table_quick_find(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v) == SUCCESS) {
+			value_to_zval(&v, return_value);
+			ts_hash_table_rd_unlock(ts_ht);
+		} else {
+			ts_hash_table_rd_unlock(ts_ht);
+			ts_hash_table_wr_lock(ts_ht);
+			if(hash_table_quick_find(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v) == SUCCESS) {
+				value_to_zval(&v, return_value);
+			} else {
+				if (zend_call_function(&fci, &fci_cache) == SUCCESS && Z_TYPE(retval) != IS_UNDEF) {
+					if (Z_ISREF(retval)) {
+						zend_unwrap_reference(&retval);
+					}
+					zval_to_value(&retval, &v);
+					v.expire = expire;
+					hash_table_quick_update(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v, NULL);
+					ZVAL_COPY_VALUE(return_value, &retval);
+				}
+			}
+			ts_hash_table_wr_unlock(ts_ht);
+		}
+	} else {
+		if(hash_table_index_find(&ts_ht->ht, index, &v) == SUCCESS) {
+			value_to_zval(&v, return_value);
+			ts_hash_table_rd_unlock(ts_ht);
+		} else {
+			ts_hash_table_rd_unlock(ts_ht);
+			ts_hash_table_wr_lock(ts_ht);
+			if(hash_table_index_find(&ts_ht->ht, index, &v) == SUCCESS) {
+				value_to_zval(&v, return_value);
+			} else {
+				if (zend_call_function(&fci, &fci_cache) == SUCCESS && Z_TYPE(retval) != IS_UNDEF) {
+					if (Z_ISREF(retval)) {
+						zend_unwrap_reference(&retval);
+					}
+					zval_to_value(&retval, &v);
+					v.expire = expire;
+					hash_table_index_update(&ts_ht->ht, index, &v, NULL);
+					ZVAL_COPY_VALUE(return_value, &retval);
+				}
+			}
+			ts_hash_table_wr_unlock(ts_ht);
+		}
 	}
 }
 
@@ -3091,6 +3220,7 @@ static const zend_function_entry ext_functions[] = {
 	PHP_FE(ts_var_pop, arginfo_ts_var_pop)
 	PHP_FE(ts_var_shift, arginfo_ts_var_shift)
 	PHP_FE(ts_var_get, arginfo_ts_var_get)
+	PHP_FE(ts_var_get_or_set, arginfo_ts_var_get_or_set)
 	PHP_FE(ts_var_del, arginfo_ts_var_del)
 	PHP_FE(ts_var_inc, arginfo_ts_var_inc)
 	PHP_FE(ts_var_count, arginfo_ts_var_count)

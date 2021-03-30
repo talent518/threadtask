@@ -92,6 +92,13 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
   * $var: 由ts_var_declare函数返回的变量
   * $key: 键名，可为字符串、整形或空，为空时返回$var中的所有变量
   * $is_del: 是否删除该变量
+* 获取线程安全变量，如果不存在则通过回调函数获取数据并设置：ts_var_get_or_set(resource $var, string|int $key, callable $callback, int $expire = 0, mixed $parameters ...): mixed
+  * $var: 由ts_var_declare函数返回的变量
+  * $key: 键名，可为字符串或整形
+  * $callback: 将被调用的回调函数
+  * $expire: 过期时间戳，为0时永不过期
+  * $parameters: 0个或以上的参数，被传入回调函数
+  * **注意：**使用CFLAGS=-DLOCK_TIMEOUT=1 make进行编译可以调试死锁，性能有些差
 * 删除线程安全变量中的数据：ts_var_del(resource $var, string|int $key): bool
   * $var: 由ts_var_declare函数返回的变量
   * $key: 键名，可为字符串或整形

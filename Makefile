@@ -18,7 +18,9 @@ threadtask: main.o func.o hash.o
 	@echo LD $@
 	@$(CC) -o $@ $^ $(LDFLAGS)
 
-func.o: func.h
+main.o: func.h
+func.o: func.h hash.h
+hash.o: hash.h
 
 %.o: %.c
 	@echo CC $@
