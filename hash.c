@@ -45,22 +45,7 @@
 	}														\
 
 #define CONNECT_TO_GLOBAL_DLLIST(element, ht)									\
-	CONNECT_TO_GLOBAL_DLLIST_EX(element, ht, (ht)->pListTail, (bucket_t *) NULL);	\
-	if ((ht)->pInternalPointer == NULL) {										\
-		(ht)->pInternalPointer = (element);										\
-	}
-
-#define HASH_PROTECT_RECURSION(ht)														\
-	if ((ht)->bApplyProtection) {														\
-		if ((ht)->nApplyCount++ >= 3) {													\
-			fprintf(stderr, "Nesting level too deep - recursive dependency?\n");		\
-		}																				\
-	}
-
-#define HASH_UNPROTECT_RECURSION(ht)													\
-	if ((ht)->bApplyProtection) {														\
-		(ht)->nApplyCount--;															\
-	}
+	CONNECT_TO_GLOBAL_DLLIST_EX(element, ht, (ht)->pListTail, (bucket_t *) NULL)
 
 #define HASH_TABLE_IF_FULL_DO_RESIZE(ht)				\
 	if ((ht)->nNumOfElements > (ht)->nTableSize) {	\
@@ -186,9 +171,7 @@ ulong hash_table_func(register const char *arKey, register uint nKeyLength) {
 	return hash;
 }
 
-static const bucket_t *uninitialized_bucket = NULL;
-
-int _hash_table_init(hash_table_t *ht, uint nSize, hash_dtor_func_t pDestructor, zend_bool bApplyProtection) {
+int _hash_table_init(hash_table_t *ht, uint nSize, hash_dtor_func_t pDestructor) {
 	uint i = 3;
 
 	memset(ht, 0, sizeof(hash_table_t));
@@ -203,16 +186,12 @@ int _hash_table_init(hash_table_t *ht, uint nSize, hash_dtor_func_t pDestructor,
 	}
 
 	ht->pDestructor = pDestructor;
-	ht->arBuckets = (bucket_t**) &uninitialized_bucket;
-	ht->bApplyProtection = bApplyProtection;
+	ht->arBuckets = (bucket_t **) malloc(ht->nTableSize * sizeof(bucket_t *));
+	memset(ht->arBuckets, 0, ht->nTableSize * sizeof(bucket_t *));
 	return SUCCESS;
 }
 
-void hash_table_set_apply_protection(hash_table_t *ht, zend_bool bApplyProtection) {
-	ht->bApplyProtection = bApplyProtection;
-}
-
-int _hash_table_add_or_update(hash_table_t *ht, const char *arKey, uint nKeyLength, value_t *pData, value_t *pDest, int flag) {
+int _hash_table_add_or_update(hash_table_t *ht, const char *arKey, uint nKeyLength, value_t *pData, int flag) {
 	ulong h;
 	uint nIndex;
 	bucket_t *p;
@@ -230,9 +209,6 @@ int _hash_table_add_or_update(hash_table_t *ht, const char *arKey, uint nKeyLeng
 			if (flag & HASH_TABLE_ADD) return FAILURE;
 
 			if (ht->pDestructor) ht->pDestructor(&p->value);
-			if (pDest) {
-				*pDest = p->value;
-			}
 			p->value = *pData;
 			return SUCCESS;
 		}
@@ -246,8 +222,6 @@ int _hash_table_add_or_update(hash_table_t *ht, const char *arKey, uint nKeyLeng
 	p->nKeyLength = nKeyLength;
 	p->value = *pData;
 	p->h = h;
-	
-	if (pDest) pDest->type = NULL_T;
 
 	CONNECT_TO_BUCKET_DLLIST(p, ht->arBuckets[nIndex]);
 	ht->arBuckets[nIndex] = p;
@@ -258,7 +232,7 @@ int _hash_table_add_or_update(hash_table_t *ht, const char *arKey, uint nKeyLeng
 	return SUCCESS;
 }
 
-int _hash_table_quick_add_or_update(hash_table_t *ht, const char *arKey, uint nKeyLength, ulong h, value_t *pData, value_t *pDest, int flag) {
+int _hash_table_quick_add_or_update(hash_table_t *ht, const char *arKey, uint nKeyLength, ulong h, value_t *pData, int flag) {
 	uint nIndex;
 	bucket_t *p;
 
@@ -274,7 +248,6 @@ int _hash_table_quick_add_or_update(hash_table_t *ht, const char *arKey, uint nK
 				return FAILURE;
 			}
 			if (ht->pDestructor) ht->pDestructor(&p->value);
-			if (pDest) *pDest = p->value;
 			p->value = *pData;
 			return SUCCESS;
 		}
@@ -288,8 +261,6 @@ int _hash_table_quick_add_or_update(hash_table_t *ht, const char *arKey, uint nK
 	p->nKeyLength = nKeyLength;
 	p->value = *pData;
 	p->h = h;
-	
-	if (pDest) pDest->type = NULL_T;
 
 	CONNECT_TO_BUCKET_DLLIST(p, ht->arBuckets[nIndex]);
 	ht->arBuckets[nIndex] = p;
@@ -300,7 +271,7 @@ int _hash_table_quick_add_or_update(hash_table_t *ht, const char *arKey, uint nK
 	return SUCCESS;
 }
 
-int _hash_table_index_update_or_next_insert(hash_table_t *ht, ulong h, value_t *pData, value_t *pDest, int flag) {
+int _hash_table_index_update_or_next_insert(hash_table_t *ht, ulong h, value_t *pData, int flag) {
 	uint nIndex;
 	bucket_t *p;
 
@@ -318,7 +289,6 @@ int _hash_table_index_update_or_next_insert(hash_table_t *ht, ulong h, value_t *
 				return FAILURE;
 			}
 			if (ht->pDestructor) ht->pDestructor(&p->value);
-			if (pDest) *pDest = p->value;
 			p->value = *pData;
 			return SUCCESS;
 		}
@@ -329,8 +299,6 @@ int _hash_table_index_update_or_next_insert(hash_table_t *ht, ulong h, value_t *
 	p->nKeyLength = 0; /* Numeric indices are marked by making the nKeyLength == 0 */
 	p->h = h;
 	p->value = *pData;
-	
-	if (pDest) pDest->type = NULL_T;
 
 	CONNECT_TO_BUCKET_DLLIST(p, ht->arBuckets[nIndex]);
 	ht->arBuckets[nIndex] = p;
@@ -394,7 +362,6 @@ void hash_table_clean(hash_table_t *ht) {
 	ht->pListTail = NULL;
 	ht->nNumOfElements = 0;
 	ht->nNextFreeElement = 0;
-	ht->pInternalPointer = NULL;
 
 	while (p != NULL) {
 		q = p;
@@ -416,7 +383,6 @@ void hash_table_clean(hash_table_t *ht) {
 void hash_table_apply(hash_table_t *ht, hash_apply_func_t apply_func) {
 	bucket_t *p;
 
-	HASH_PROTECT_RECURSION(ht);
 	p = ht->pListHead;
 	while (p != NULL) {
 		int result = apply_func(p);
@@ -431,13 +397,11 @@ void hash_table_apply(hash_table_t *ht, hash_apply_func_t apply_func) {
 			break;
 		}
 	}
-	HASH_UNPROTECT_RECURSION(ht);
 }
 
 void hash_table_apply_with_argument(hash_table_t *ht, hash_apply_func_arg_t apply_func, void *argument) {
 	bucket_t *p;
 
-	HASH_PROTECT_RECURSION(ht);
 	p = ht->pListHead;
 	while (p != NULL) {
 		int result = apply_func(p, argument);
@@ -452,14 +416,11 @@ void hash_table_apply_with_argument(hash_table_t *ht, hash_apply_func_arg_t appl
 			break;
 		}
 	}
-	HASH_UNPROTECT_RECURSION(ht);
 }
 
 void hash_table_apply_with_arguments(hash_table_t *ht, hash_apply_func_args_t apply_func, int num_args, ...) {
 	bucket_t *p;
 	va_list args;
-
-	HASH_PROTECT_RECURSION(ht);
 
 	p = ht->pListHead;
 	while (p != NULL) {
@@ -481,8 +442,6 @@ void hash_table_apply_with_arguments(hash_table_t *ht, hash_apply_func_args_t ap
 		}
 		va_end(args);
 	}
-
-	HASH_UNPROTECT_RECURSION(ht);
 }
 
 /* Returns SUCCESS if found and FAILURE if not. The pointer to the
@@ -580,6 +539,86 @@ int hash_table_index_find(const hash_table_t *ht, ulong h, value_t *pData) {
 	}
 	return FAILURE;
 }
+
+#ifdef LOCK_TIMEOUT
+pthread_key_t tskey;
+
+void ts_table_table_tid_destroy(void *ht) {
+	if(ht) {
+		hash_table_destroy(ht);
+		free(ht);
+	}
+}
+
+long int ts_table_table_tid_inc(void *hh) {
+	uint nIndex;
+	bucket_t *p;
+	ulong h = (ulong) hh;
+	
+	hash_table_t *ht = pthread_getspecific(tskey);
+	if(ht == NULL) {
+		ht = (hash_table_t *) malloc(sizeof(hash_table_t));
+		hash_table_init_ex(ht, 3, NULL);
+		pthread_setspecific(tskey, ht);
+	}
+
+	nIndex = h & ht->nTableMask;
+
+	p = ht->arBuckets[nIndex];
+	while (p != NULL) {
+		if (p->h == h) {
+			return ++p->value.l;
+		}
+		p = p->pNext;
+	}
+
+	p = (bucket_t *) malloc(sizeof(bucket_t));
+	p->arKey[0] = '\0';
+	p->nKeyLength = 0; /* Numeric indices are marked by making the nKeyLength == 0 */
+	p->h = h;
+	p->value.type = LONG_T;
+	p->value.l = 1;
+
+	CONNECT_TO_BUCKET_DLLIST(p, ht->arBuckets[nIndex]);
+	ht->arBuckets[nIndex] = p;
+	CONNECT_TO_GLOBAL_DLLIST(p, ht);
+
+	if ((long) h >= (long) ht->nNextFreeElement) {
+		ht->nNextFreeElement = h < LONG_MAX ? h + 1 : LONG_MAX;
+	}
+	ht->nNumOfElements++;
+	HASH_TABLE_IF_FULL_DO_RESIZE(ht);
+	
+	return 1;
+}
+
+long int ts_table_table_tid_dec(void *hh) {
+	uint nIndex;
+	bucket_t *p;
+	ulong h = (ulong) hh;
+	hash_table_t *ht = pthread_getspecific(tskey);
+	if(ht == NULL) {
+		return 0;
+	}
+
+	nIndex = h & ht->nTableMask;
+
+	p = ht->arBuckets[nIndex];
+	while (p != NULL) {
+		if (p->h == h) {
+			if(--p->value.l == 0) {
+				hash_table_bucket_delete(ht, p);
+				return 0;
+			} else {
+				return p->value.l;
+			}
+		}
+		p = p->pNext;
+	}
+	
+	return 0;
+}
+#endif
 
 int hash_table_index_exists(const hash_table_t *ht, ulong h) {
 	uint nIndex;
