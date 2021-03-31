@@ -562,7 +562,7 @@ long int ts_table_table_tid_inc(void *hh) {
 		ts = (tskey_hash_table_t *) malloc(sizeof(tskey_hash_table_t));
 		hash_table_init_ex(&ts->ht, 3, NULL);
 		pthread_mutex_init(&ts->lock, NULL);
-		pthread_setspecific(tskey, ht);
+		pthread_setspecific(tskey, ts);
 	}
 	hash_table_t *ht = &ts->ht;
 	
