@@ -185,6 +185,13 @@ static zend_always_inline void hash_table_bucket_delete(hash_table_t *ht, bucket
 #undef LOCK_TIMEOUT
 #endif
 
+#ifdef LOCK_TIMEOUT
+typedef struct _tskey_hash_table_t {
+	hash_table_t ht;
+	pthread_mutex_t lock;
+} tskey_hash_table_t;
+#endif
+
 typedef struct ts_hash_table_t {
 	hash_table_t ht;
 	int expire;
@@ -193,6 +200,9 @@ typedef struct ts_hash_table_t {
 	pthread_mutex_t wlock;
 	pthread_mutex_t rlock;
 	int fds[2];
+#ifdef LOCK_TIMEOUT
+	tskey_hash_table_t *tsht;
+#endif
 } ts_hash_table_t;
 
 static zend_always_inline int _ts_hash_table_init(ts_hash_table_t *ts_ht, uint nSize, hash_dtor_func_t pDestructor) {
@@ -201,7 +211,9 @@ static zend_always_inline int _ts_hash_table_init(ts_hash_table_t *ts_ht, uint n
 	ts_ht->fds[0] = 0;
 	ts_ht->fds[1] = 0;
 	ts_ht->expire = 0;
-
+#ifdef LOCK_TIMEOUT
+	ts_ht->tsht = NULL;
+#endif
 	pthread_mutex_init(&ts_ht->rlock, NULL);
 	pthread_mutex_init(&ts_ht->wlock, NULL);
 	return _hash_table_init(&ts_ht->ht, nSize, pDestructor);
@@ -222,8 +234,15 @@ static zend_always_inline void ts_hash_table_unlock(ts_hash_table_t *ts_ht) {
 extern pthread_key_t tskey;
 void ts_table_table_tid_destroy(void *ht);
 long int ts_table_table_tid_inc(void *ht);
-long int ts_table_table_tid_dec(void *ht);
+long int ts_table_table_tid_dec_ex(tskey_hash_table_t *tsht, ts_hash_table_t *hh);
+#define ts_table_table_tid_dec(ht) ts_table_table_tid_dec_ex(pthread_getspecific(tskey), ht)
 const char *gettimeofstr();
+static zend_always_inline void ts_hash_table_deadlock() {
+	zval *name = zend_get_constant_str(ZEND_STRL("THREAD_TASK_NAME"));
+	zend_throw_exception_ex(zend_ce_exception, 0, "[%s][%s] A thread sharing variable creates a deadlock.", gettimeofstr(), name ? Z_STRVAL_P(name) : "main");
+	zend_exception_error(EG(exception), E_ERROR);
+	zend_clear_exception();
+}
 #endif
 
 static zend_always_inline void ts_hash_table_wr_lock(ts_hash_table_t *ts_ht) {
@@ -236,12 +255,10 @@ static zend_always_inline void ts_hash_table_wr_lock(ts_hash_table_t *ts_ht) {
 		clock_gettime(CLOCK_REALTIME, &ts);
 		ts.tv_sec += LOCK_TIMEOUT;
 		if(pthread_mutex_timedlock(&ts_ht->wlock, &ts)) {
-			zval *name = zend_get_constant_str(ZEND_STRL("THREAD_TASK_NAME"));
-			zend_throw_exception_ex(zend_ce_exception, 0, "[%s][%s] A thread sharing variable creates a deadlock.", gettimeofstr(), name ? Z_STRVAL_P(name) : "main");
-			zend_exception_error(EG(exception), E_ERROR);
-			zend_clear_exception();
+			ts_hash_table_deadlock();
 			pthread_mutex_lock(&ts_ht->wlock);
 		}
+		ts_ht->tsht = pthread_getspecific(tskey);
 	}
 #endif
 }
@@ -250,9 +267,20 @@ static zend_always_inline void ts_hash_table_wr_unlock(ts_hash_table_t *ts_ht) {
 #ifndef LOCK_TIMEOUT
 	pthread_mutex_unlock(&ts_ht->wlock);
 #else
-	if(ts_table_table_tid_dec(ts_ht) == 0) {
+	long int i = ts_table_table_tid_dec(ts_ht);
+	if(i == 0) {
+		ts_ht->tsht = NULL;
 		// printf("%p unlock\n", ts_ht);
 		pthread_mutex_unlock(&ts_ht->wlock);
+	} else if(i < 0) {
+		i = ts_table_table_tid_dec_ex(ts_ht->tsht, ts_ht);
+		if(i == 0) {
+			ts_ht->tsht = NULL;
+			// printf("%p unlock\n", ts_ht);
+			pthread_mutex_unlock(&ts_ht->wlock);
+		} else {
+			ts_hash_table_deadlock();
+		}
 	}
 #endif
 }

@@ -545,7 +545,9 @@ pthread_key_t tskey;
 
 void ts_table_table_tid_destroy(void *ht) {
 	if(ht) {
-		hash_table_destroy(ht);
+		tskey_hash_table_t *ts = (tskey_hash_table_t*) ht;
+		hash_table_destroy(&ts->ht);
+		pthread_mutex_destroy(&ts->lock);
 		free(ht);
 	}
 }
@@ -555,19 +557,25 @@ long int ts_table_table_tid_inc(void *hh) {
 	bucket_t *p;
 	ulong h = (ulong) hh;
 	
-	hash_table_t *ht = pthread_getspecific(tskey);
-	if(ht == NULL) {
-		ht = (hash_table_t *) malloc(sizeof(hash_table_t));
-		hash_table_init_ex(ht, 3, NULL);
+	tskey_hash_table_t *ts = pthread_getspecific(tskey);
+	if(ts == NULL) {
+		ts = (tskey_hash_table_t *) malloc(sizeof(tskey_hash_table_t));
+		hash_table_init_ex(&ts->ht, 3, NULL);
+		pthread_mutex_init(&ts->lock, NULL);
 		pthread_setspecific(tskey, ht);
 	}
+	hash_table_t *ht = &ts->ht;
+	
+	pthread_mutex_lock(&ts->lock);
 
 	nIndex = h & ht->nTableMask;
 
 	p = ht->arBuckets[nIndex];
 	while (p != NULL) {
 		if (p->h == h) {
-			return ++p->value.l;
+			p->value.l++;
+			pthread_mutex_unlock(&ts->lock);
+			return p->value.l;
 		}
 		p = p->pNext;
 	}
@@ -589,34 +597,40 @@ long int ts_table_table_tid_inc(void *hh) {
 	ht->nNumOfElements++;
 	HASH_TABLE_IF_FULL_DO_RESIZE(ht);
 	
+	pthread_mutex_unlock(&ts->lock);
+	
 	return 1;
 }
 
-long int ts_table_table_tid_dec(void *hh) {
+long int ts_table_table_tid_dec_ex(tskey_hash_table_t *tsht, ts_hash_table_t *hh) {
 	uint nIndex;
 	bucket_t *p;
 	ulong h = (ulong) hh;
-	hash_table_t *ht = pthread_getspecific(tskey);
-	if(ht == NULL) {
-		return 0;
+	if(tsht == NULL) {
+		return -1;
 	}
 
-	nIndex = h & ht->nTableMask;
+	hash_table_t *ht = &tsht->ht;
 
+	pthread_mutex_lock(&tsht->lock);
+	nIndex = h & ht->nTableMask;
 	p = ht->arBuckets[nIndex];
 	while (p != NULL) {
 		if (p->h == h) {
 			if(--p->value.l == 0) {
 				hash_table_bucket_delete(ht, p);
+				pthread_mutex_unlock(&tsht->lock);
 				return 0;
 			} else {
+				pthread_mutex_unlock(&tsht->lock);
 				return p->value.l;
 			}
 		}
 		p = p->pNext;
 	}
-	
-	return 0;
+	pthread_mutex_unlock(&tsht->lock);
+
+	return -1;
 }
 #endif
 
