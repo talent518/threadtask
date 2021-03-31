@@ -543,19 +543,25 @@ int hash_table_index_find(const hash_table_t *ht, ulong h, value_t *pData) {
 #ifdef LOCK_TIMEOUT
 pthread_key_t tskey;
 
-void ts_table_table_tid_destroy(void *ht) {
-	if(ht) {
-		tskey_hash_table_t *ts = (tskey_hash_table_t*) ht;
+static int ts_table_table_tid_apply(bucket_t *p) {
+	fprintf(stderr, "No unlocked pointer ts_hash_table_t: %p\n", *(ts_hash_table_t**)p->arKey);
+	return HASH_TABLE_APPLY_REMOVE;
+}
+
+void ts_table_table_tid_destroy(void *hh) {
+	tskey_hash_table_t *ts = (tskey_hash_table_t*) hh;
+	if(ts) {
+		hash_table_apply(&ts->ht, (hash_apply_func_t) ts_table_table_tid_apply);
 		hash_table_destroy(&ts->ht);
 		pthread_mutex_destroy(&ts->lock);
-		free(ht);
+		free(ts);
 	}
 }
 
-long int ts_table_table_tid_inc(void *hh) {
+long int ts_table_table_tid_inc(ts_hash_table_t *hh) {
 	uint nIndex;
 	bucket_t *p;
-	ulong h = (ulong) hh;
+	register ulong h = hh->h;
 	
 	tskey_hash_table_t *ts = pthread_getspecific(tskey);
 	if(ts == NULL) {
@@ -572,7 +578,7 @@ long int ts_table_table_tid_inc(void *hh) {
 
 	p = ht->arBuckets[nIndex];
 	while (p != NULL) {
-		if (p->h == h) {
+		if (p->h == h && p->nKeyLength == sizeof(void*) && *(void**)p->arKey == hh) {
 			p->value.l++;
 			pthread_mutex_unlock(&ts->lock);
 			return p->value.l;
@@ -580,9 +586,10 @@ long int ts_table_table_tid_inc(void *hh) {
 		p = p->pNext;
 	}
 
-	p = (bucket_t *) malloc(sizeof(bucket_t));
-	p->arKey[0] = '\0';
-	p->nKeyLength = 0; /* Numeric indices are marked by making the nKeyLength == 0 */
+	p = (bucket_t *) malloc(sizeof(bucket_t)+sizeof(void*));
+	*((void**)p->arKey) = hh;
+	p->arKey[sizeof(void*)] = '\0';
+	p->nKeyLength = sizeof(void*); /* Numeric indices are marked by making the nKeyLength == 0 */
 	p->h = h;
 	p->value.type = LONG_T;
 	p->value.l = 1;
@@ -591,9 +598,6 @@ long int ts_table_table_tid_inc(void *hh) {
 	ht->arBuckets[nIndex] = p;
 	CONNECT_TO_GLOBAL_DLLIST(p, ht);
 
-	if ((long) h >= (long) ht->nNextFreeElement) {
-		ht->nNextFreeElement = h < LONG_MAX ? h + 1 : LONG_MAX;
-	}
 	ht->nNumOfElements++;
 	HASH_TABLE_IF_FULL_DO_RESIZE(ht);
 	
@@ -603,9 +607,8 @@ long int ts_table_table_tid_inc(void *hh) {
 }
 
 long int ts_table_table_tid_dec_ex(tskey_hash_table_t *tsht, ts_hash_table_t *hh) {
-	uint nIndex;
 	bucket_t *p;
-	ulong h = (ulong) hh;
+	register ulong h = hh->h;
 	if(tsht == NULL) {
 		return -1;
 	}
@@ -613,10 +616,9 @@ long int ts_table_table_tid_dec_ex(tskey_hash_table_t *tsht, ts_hash_table_t *hh
 	hash_table_t *ht = &tsht->ht;
 
 	pthread_mutex_lock(&tsht->lock);
-	nIndex = h & ht->nTableMask;
-	p = ht->arBuckets[nIndex];
+	p = ht->arBuckets[h & ht->nTableMask];
 	while (p != NULL) {
-		if (p->h == h) {
+		if (p->h == h && p->nKeyLength == sizeof(void*) && *(void**)p->arKey == hh) {
 			if(--p->value.l == 0) {
 				hash_table_bucket_delete(ht, p);
 				pthread_mutex_unlock(&tsht->lock);
