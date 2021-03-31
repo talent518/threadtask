@@ -176,8 +176,12 @@ void thread_running() {
 	dprintf("sizeof(zval) = %lu\n", sizeof(zval));
 
 	dprintf("sizeof(value_t) = %lu\n", sizeof(value_t));
+	dprintf("sizeof(bucket_t) = %lu\n", sizeof(bucket_t));
 	dprintf("sizeof(hash_table_t) = %lu\n", sizeof(hash_table_t));
 	dprintf("sizeof(ts_hash_table_t) = %lu\n", sizeof(ts_hash_table_t));
+#ifdef LOCK_TIMEOUT
+	dprintf("sizeof(tskey_hash_table_t) = %lu\n", sizeof(tskey_hash_table_t));
+#endif
 	dprintf("sizeof(pthread_t) = %lu\n", sizeof(pthread_t));
 	dprintf("sizeof(pthread_mutex_t) = %lu\n", sizeof(pthread_mutex_t));
 	dprintf("sizeof(pthread_rwlock_t) = %lu\n", sizeof(pthread_rwlock_t));

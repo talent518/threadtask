@@ -202,6 +202,7 @@ typedef struct ts_hash_table_t {
 	int fds[2];
 #ifdef LOCK_TIMEOUT
 	tskey_hash_table_t *tsht;
+	ulong h;
 #endif
 } ts_hash_table_t;
 
@@ -213,6 +214,7 @@ static zend_always_inline int _ts_hash_table_init(ts_hash_table_t *ts_ht, uint n
 	ts_ht->expire = 0;
 #ifdef LOCK_TIMEOUT
 	ts_ht->tsht = NULL;
+	ts_ht->h = hash_table_func((const char*) &ts_ht, sizeof(void*));
 #endif
 	pthread_mutex_init(&ts_ht->rlock, NULL);
 	pthread_mutex_init(&ts_ht->wlock, NULL);
@@ -232,8 +234,8 @@ static zend_always_inline void ts_hash_table_unlock(ts_hash_table_t *ts_ht) {
 
 #ifdef LOCK_TIMEOUT
 extern pthread_key_t tskey;
-void ts_table_table_tid_destroy(void *ht);
-long int ts_table_table_tid_inc(void *ht);
+void ts_table_table_tid_destroy(void *hh);
+long int ts_table_table_tid_inc(ts_hash_table_t *hh);
 long int ts_table_table_tid_dec_ex(tskey_hash_table_t *tsht, ts_hash_table_t *hh);
 #define ts_table_table_tid_dec(ht) ts_table_table_tid_dec_ex(pthread_getspecific(tskey), ht)
 const char *gettimeofstr();
