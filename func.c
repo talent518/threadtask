@@ -172,9 +172,11 @@ void thread_init() {
 void thread_running() {
 	PG(display_errors) = 0;
 
+	dprintf("sizeof(Bucket) = %lu\n", sizeof(Bucket));
 	dprintf("sizeof(HashTable) = %lu\n", sizeof(HashTable));
 	dprintf("sizeof(zval) = %lu\n", sizeof(zval));
 
+	dprintf("sizeof(type_t) = %lu\n", sizeof(type_t));
 	dprintf("sizeof(value_t) = %lu\n", sizeof(value_t));
 	dprintf("sizeof(bucket_t) = %lu\n", sizeof(bucket_t));
 	dprintf("sizeof(hash_table_t) = %lu\n", sizeof(hash_table_t));
@@ -1362,9 +1364,23 @@ static PHP_FUNCTION(share_var_get_and_del)
 	efree(arguments);
 }
 
+#define GC_RECURSIVE_BEGIN(z) \
+	do { \
+		if(!(GC_FLAGS(z) & GC_IMMUTABLE) && GC_IS_RECURSIVE(z)) { \
+			const char *space; \
+			const char *class_name = get_active_class_name(&space); \
+			zend_error(E_WARNING, "%s%s%s() does not handle circular references", class_name, space, get_active_function_name()); \
+		} else { \
+			GC_TRY_PROTECT_RECURSION(z)
+#define GC_RECURSIVE_END(z) \
+			GC_TRY_UNPROTECT_RECURSION(z); \
+		} \
+	} while(0)
+
 static int zval_array_to_hash_table(zval *pDest, int num_args, va_list args, zend_hash_key *hash_key);
 static void zval_to_value(zval *z, value_t *v) {
 	v->expire = 0;
+	while(Z_ISREF_P(z)) z = Z_REFVAL_P(z);
 	switch(Z_TYPE_P(z)) {
 		case IS_FALSE:
 		case IS_TRUE:
@@ -1387,10 +1403,12 @@ static void zval_to_value(zval *z, value_t *v) {
 			v->str->len = Z_STRLEN_P(z);
 			break;
 		case IS_ARRAY:
+			GC_RECURSIVE_BEGIN(Z_ARR_P(z));
 			v->type = HT_T;
 			v->ptr = malloc(sizeof(hash_table_t));
 			hash_table_init((hash_table_t*) v->ptr, 2);
 			zend_hash_apply_with_arguments(Z_ARR_P(z), zval_array_to_hash_table, 1, v->ptr);
+			GC_RECURSIVE_END(Z_ARR_P(z));
 			break;
 		case IS_OBJECT:
 			#define __SERI_OK2 \
@@ -1411,6 +1429,8 @@ static void zval_to_value(zval *z, value_t *v) {
 static int zval_array_to_hash_table(zval *pDest, int num_args, va_list args, zend_hash_key *hash_key) {
 	value_t v={.type=NULL_T,.expire=0};
 	hash_table_t *ht = va_arg(args, hash_table_t*);
+	
+	while(Z_ISREF_P(pDest)) pDest = Z_REFVAL_P(pDest);
 
 	if(hash_key->key) {
 		if(Z_TYPE_P(pDest) == IS_ARRAY) {
@@ -1418,7 +1438,9 @@ static int zval_array_to_hash_table(zval *pDest, int num_args, va_list args, zen
 				zval_to_value(pDest, &v);
 				hash_table_update(ht, ZSTR_VAL(hash_key->key), ZSTR_LEN(hash_key->key), &v, NULL);
 			} else {
+				GC_RECURSIVE_BEGIN(Z_ARR_P(pDest));
 				zend_hash_apply_with_arguments(Z_ARR_P(pDest), zval_array_to_hash_table, 1, v.ptr);
+				GC_RECURSIVE_END(Z_ARR_P(pDest));
 			}
 		} else {
 			zval_to_value(pDest, &v);
@@ -1430,7 +1452,9 @@ static int zval_array_to_hash_table(zval *pDest, int num_args, va_list args, zen
 				zval_to_value(pDest, &v);
 				hash_table_index_update(ht, hash_key->h, &v, NULL);
 			} else {
+				GC_RECURSIVE_BEGIN(Z_ARR_P(pDest));
 				zend_hash_apply_with_arguments(Z_ARR_P(pDest), zval_array_to_hash_table, 1, v.ptr);
+				GC_RECURSIVE_END(Z_ARR_P(pDest));
 			}
 		} else {
 			zval_to_value(pDest, &v);
@@ -1455,7 +1479,9 @@ static PHP_FUNCTION(share_var_put)
 	SHARE_VAR_WLOCK();
 	if(arg_num == 1) {
 		if(Z_TYPE(arguments[0]) == IS_ARRAY) {
+			GC_RECURSIVE_BEGIN(Z_ARR(arguments[0]));
 			zend_hash_apply_with_arguments(Z_ARR(arguments[0]), zval_array_to_hash_table, 1, share_var_ht);
+			GC_RECURSIVE_END(Z_ARR(arguments[0]));
 			RETVAL_TRUE;
 		} else {
 			value_t v3;
@@ -1474,7 +1500,9 @@ static PHP_FUNCTION(share_var_put)
 							zval_to_value(&arguments[i+1], &v2);
 							RETVAL_BOOL(hash_table_index_update((hash_table_t*) v1.ptr, Z_LVAL(arguments[i]), &v2, NULL) == SUCCESS);
 						} else {
+							GC_RECURSIVE_BEGIN(Z_ARR(arguments[i+1]));
 							zend_hash_apply_with_arguments(Z_ARR(arguments[i+1]), zval_array_to_hash_table, 1, v2.ptr);
+							GC_RECURSIVE_END(Z_ARR(arguments[i+1]));
 							RETVAL_TRUE;
 						}
 					} else {
@@ -1483,7 +1511,9 @@ static PHP_FUNCTION(share_var_put)
 							zval_to_value(&arguments[i+1], &v2);
 							RETVAL_BOOL(hash_table_update((hash_table_t*) v1.ptr, Z_STRVAL(arguments[i]), Z_STRLEN(arguments[i]), &v2, NULL) == SUCCESS);
 						} else {
+							GC_RECURSIVE_BEGIN(Z_ARR(arguments[i+1]));
 							zend_hash_apply_with_arguments(Z_ARR(arguments[i+1]), zval_array_to_hash_table, 1, v2.ptr);
+							GC_RECURSIVE_END(Z_ARR(arguments[i+1]));
 							RETVAL_TRUE;
 						}
 					}

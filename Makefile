@@ -28,3 +28,4 @@ hash.o: hash.h
 
 clean:
 	@LANG=en rm -vf *.o threadtask
+
