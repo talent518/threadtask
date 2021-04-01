@@ -1364,6 +1364,18 @@ static PHP_FUNCTION(share_var_get_and_del)
 	efree(arguments);
 }
 
+#if PHP_VERSION_ID < 70300
+#define GC_RECURSIVE_BEGIN(z) do { \
+	if(!ZEND_HASH_APPLY_PROTECTION(z) || (z)->u.v.nApplyCount++ <= 1) {
+#define GC_RECURSIVE_END(z) \
+			if(ZEND_HASH_APPLY_PROTECTION(z)) (z)->u.v.nApplyCount--; \
+		} else { \
+			const char *space; \
+			const char *class_name = get_active_class_name(&space); \
+			zend_error(E_WARNING, "%s%s%s() does not handle circular references", class_name, space, get_active_function_name()); \
+		} \
+	} while(0)
+#else
 #define GC_RECURSIVE_BEGIN(z) \
 	do { \
 		if(!(GC_FLAGS(z) & GC_IMMUTABLE) && GC_IS_RECURSIVE(z)) { \
@@ -1376,6 +1388,7 @@ static PHP_FUNCTION(share_var_get_and_del)
 			GC_TRY_UNPROTECT_RECURSION(z); \
 		} \
 	} while(0)
+#endif
 
 static int zval_array_to_hash_table(zval *pDest, int num_args, va_list args, zend_hash_key *hash_key);
 static void zval_to_value(zval *z, value_t *v) {
