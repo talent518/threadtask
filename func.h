@@ -125,8 +125,23 @@ void zend_stream_init_filename(zend_file_handle *file_handle, const char *script
 		            num_args);
 		return FAILURE;
 	}
-/* }}} */
+	/* }}} */
 
+#endif
+
+
+#ifndef ZEND_THIS
+#define ZEND_THIS getThis()
+#endif
+
+#if PHP_VERSION_ID < 80000
+#define Z_OBJ_PROP(ex) (ex)
+#else
+#define Z_OBJ_PROP(ex) Z_OBJ_P(ex)
+#endif
+
+#if PHP_VERSION_ID < 70300
+#define zend_string_release_ex(s, f) zend_string_release(s)
 #endif
 
 #endif

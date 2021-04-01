@@ -27,6 +27,7 @@
 #include <php_network.h>
 #include <sockets/php_sockets.h>
 #include <zend_exceptions.h>
+#include <spl/spl_functions.h>
 
 #include "func.h"
 #include "hash.h"
@@ -68,6 +69,8 @@ static pthread_mutex_t tlock;
 
 typedef struct _php_threadtask_globals_struct {
 	char strftime[20];
+	zend_bool is_throw_exit;
+	int timestamp;
 	timeout_t *timeout;
 } php_threadtask_globals_struct;
 
@@ -93,10 +96,14 @@ const char *gettimeofstr() {
 	struct tm *tmp;
 
 	t = time(NULL);
+
+	if(SINFO(timestamp) == t) return SINFO(strftime);
+
+	SINFO(timestamp) = t;
 	tmp = localtime(&t);
 	if (tmp == NULL) {
 		perror("localtime error");
-		return "";
+		return "0000-00-00 00:00:00";
 	}
 
 	if (strftime(SINFO(strftime), sizeof(SINFO(strftime)), "%F %T", tmp) == 0) {
@@ -170,7 +177,7 @@ void thread_init() {
 }
 
 void thread_running() {
-	PG(display_errors) = 0;
+	if(PG(error_log) == NULL) PG(display_errors) = 0;
 
 	dprintf("sizeof(Bucket) = %lu\n", sizeof(Bucket));
 	dprintf("sizeof(HashTable) = %lu\n", sizeof(HashTable));
@@ -318,7 +325,7 @@ newtask:
 
 	SG(headers_sent) = 1;
 	SG(request_info).no_headers = 1;
-	PG(display_errors) = 0;
+	if(PG(error_log) == NULL) PG(display_errors) = 0;
 
 	zend_register_string_constant(ZEND_STRL("THREAD_TASK_NAME"), task->name, CONST_CS, PHP_USER_CONSTANT);
 
@@ -797,6 +804,62 @@ static PHP_FUNCTION(pthread_sigmask) {
 
 // ===========================================================================================================
 
+static user_opcode_handler_t ori_exit_handler = NULL;
+zend_class_entry *spl_ce_GoExitException;
+
+static int go_exit_handler(zend_execute_data *execute_data) {
+	if(SINFO(is_throw_exit)) {
+        const zend_op *opline = EX(opline);
+        zval ex;
+        zend_object *obj;
+        zval _exit_status;
+        zval *exit_status = NULL;
+
+        if (opline->op1_type != IS_UNUSED) {
+            if (opline->op1_type == IS_CONST) {
+                // see: https://github.com/php/php-src/commit/e70618aff6f447a298605d07648f2ce9e5a284f5
+#ifdef EX_CONSTANT
+                exit_status = EX_CONSTANT(opline->op1);
+#else
+                exit_status = RT_CONSTANT(opline, opline->op1);
+#endif
+            } else {
+                exit_status = EX_VAR(opline->op1.var);
+            }
+            if (Z_ISREF_P(exit_status)) {
+                exit_status = Z_REFVAL_P(exit_status);
+            }
+            ZVAL_DUP(&_exit_status, exit_status);
+            exit_status = &_exit_status;
+        } else {
+            exit_status = &_exit_status;
+            ZVAL_NULL(exit_status);
+        }
+        obj = zend_throw_exception(spl_ce_GoExitException, "In go function is run exit()", 0);
+        ZVAL_OBJ(&ex, obj);
+        Z_TRY_ADDREF_P(exit_status);
+        zend_update_property(spl_ce_GoExitException, Z_OBJ_PROP(&ex), ZEND_STRL("status"), exit_status);
+    }
+
+	return ZEND_USER_OPCODE_DISPATCH;
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_spl_ce_GoExitException_getStatus, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_METHOD(spl_ce_GoExitException, getStatus) {
+	zval *prop, rv;
+	zend_string *status;
+
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	status = zend_string_init(ZEND_STRL("status"), 0);
+	prop = zend_read_property_ex(Z_OBJCE_P(ZEND_THIS), Z_OBJ_PROP(ZEND_THIS), status, 0, &rv);
+	zend_string_release_ex(status, 0);
+
+	RETURN_ZVAL(prop, 1, 0);
+}
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_go, 0, 0, 1)
 ZEND_ARG_INFO(0, function_name)
 ZEND_ARG_VARIADIC_INFO(0, parameters)
@@ -817,6 +880,9 @@ static PHP_FUNCTION(go) {
     ZEND_PARSE_PARAMETERS_END();
 
     fci.retval = &retval;
+    
+    zend_bool b = SINFO(is_throw_exit);
+    SINFO(is_throw_exit) = 1;
 
 	zend_try {
 		if (zend_call_function(&fci, &fci_cache) == SUCCESS && Z_TYPE(retval) != IS_UNDEF) {
@@ -829,9 +895,7 @@ static PHP_FUNCTION(go) {
         EG(exit_status) = 0;
 	} zend_end_try();
 
-#if PHP_VERSION_ID >= 80000
-	if(EG(exception) && zend_is_unwind_exit(EG(exception))) zend_clear_exception();
-#endif
+    SINFO(is_throw_exit) = b;
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_call_and_free_shutdown, 0)
@@ -3281,10 +3345,17 @@ static const zend_function_entry ext_functions[] = {
 	{NULL, NULL, NULL}
 };
 
+static const zend_function_entry spl_ce_GoExitException_methods[] = {
+	PHP_ME(spl_ce_GoExitException, getStatus, arginfo_spl_ce_GoExitException_getStatus, ZEND_ACC_PUBLIC)
+	PHP_FE_END
+};
+
 // -----------------------------------------------------------------------------------------------------------
 
 static void php_threadtask_globals_ctor(php_threadtask_globals_struct *php_threadtask_globals) {
+	php_threadtask_globals->timestamp = 0;
 	php_threadtask_globals->timeout = NULL;
+	php_threadtask_globals->is_throw_exit = 0;
 }
 
 static void php_threadtask_globals_dtor(php_threadtask_globals_struct *php_threadtask_globals) {
@@ -3329,10 +3400,17 @@ static void php_destroy_ts_var(zend_resource *rsrc) {
 	dprintf("RESOURCE %p destroy(ts var)\n", rsrc->ptr);
 }
 
+#define spl_ce_Exception zend_ce_exception
+
 static PHP_MINIT_FUNCTION(threadtask) {
 	ts_allocate_id(&php_threadtask_globals_id, sizeof(php_threadtask_globals_struct), (ts_allocate_ctor) php_threadtask_globals_ctor, (ts_allocate_dtor) php_threadtask_globals_dtor);
 	le_threadtask_descriptor = zend_register_list_destructors_ex(php_destroy_threadtask, NULL, PHP_THREADTASK_DESCRIPTOR, module_number);
 	le_ts_var_descriptor = zend_register_list_destructors_ex(php_destroy_ts_var, NULL, PHP_TS_VAR_DESCRIPTOR, module_number);
+	
+	REGISTER_SPL_SUB_CLASS_EX(GoExitException, Exception, NULL, spl_ce_GoExitException_methods);
+	zend_declare_property_long(spl_ce_GoExitException, ZEND_STRL("status"), 0, ZEND_ACC_PRIVATE);
+	zend_set_user_opcode_handler(ZEND_EXIT, go_exit_handler);
+
 	return SUCCESS;
 }
 
