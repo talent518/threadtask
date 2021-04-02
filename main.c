@@ -118,7 +118,6 @@ int main(int argc, char *argv[]) {
 	zend_file_handle file_handle;
 	int opt;
 
-opts:
 	while((opt = getopt(argc, argv, "Dd:t:r")) != -1) {
 		switch(opt) {
 			case 'D':

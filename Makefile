@@ -2,7 +2,7 @@ CC := gcc
 PHPDIR ?= /opt/phpts
 PHPSO ?= php7
 PHPINC := $(PHPDIR)/include/php
-CFLAGS := -O2 -I$(PHPINC) -I$(PHPINC)/ext -I$(PHPINC)/main -I$(PHPINC)/sapi -I$(PHPINC)/TSRM -I$(PHPINC)/Zend $(CFLAGS)
+CFLAGS := -O2 -Wall -I$(PHPINC) -I$(PHPINC)/ext -I$(PHPINC)/main -I$(PHPINC)/sapi -I$(PHPINC)/TSRM -I$(PHPINC)/Zend $(CFLAGS)
 LDFLAGS := -L$(PHPDIR)/lib -Wl,-rpath,$(PHPDIR)/lib -l$(PHPSO) -pthread $(LDFLAGS)
 
 all: $(PHPINC)
