@@ -458,14 +458,11 @@ static PHP_FUNCTION(create_task) {
 	size_t taskname_len, filename_len, logfile_len = 0, logmode_len = 2;
 	task_t *task;
 	HashTable *ht;
-	zend_long idx;
-	zend_string *key;
 	zval *val, *res = NULL;
 
 	pthread_t thread;
 	pthread_attr_t attr;
 	int ret;
-	struct timespec timeout;
 
 	ZEND_PARSE_PARAMETERS_START(3, 6)
 		Z_PARAM_STRING(taskname, taskname_len)
@@ -512,7 +509,7 @@ static PHP_FUNCTION(create_task) {
 	}
 
 	ret = 0;
-	ZEND_HASH_FOREACH_KEY_VAL(ht, idx, key, val) {
+	ZEND_HASH_FOREACH_VAL(ht, val) {
 		convert_to_string(val);
 		task->argv[++ret] = strndup(Z_STRVAL_P(val), Z_STRLEN_P(val));
 	} ZEND_HASH_FOREACH_END();
@@ -804,8 +801,7 @@ static PHP_FUNCTION(pthread_sigmask) {
 
 // ===========================================================================================================
 
-static user_opcode_handler_t ori_exit_handler = NULL;
-zend_class_entry *spl_ce_GoExitException;
+static zend_class_entry *spl_ce_GoExitException;
 
 static int go_exit_handler(zend_execute_data *execute_data) {
 	if(SINFO(is_throw_exit)) {
@@ -997,7 +993,7 @@ static PHP_FUNCTION(trigger_timeout) {
 		Z_PARAM_LONG(sig)
 	ZEND_PARSE_PARAMETERS_END();
 
-	timeout_t *t, *p;
+	timeout_t *t;
 	double sec = microtime();
 
 	pthread_mutex_lock(&tlock);
@@ -3040,7 +3036,6 @@ static PHP_FUNCTION(socket_accept_ex) {
 	zend_long sockfd = -1;
 	zval *addr, *port;
 	int fd;
-	php_socket *sock;
 	php_sockaddr_storage sa_storage;
 	socklen_t salen = sizeof(php_sockaddr_storage);
 	struct sockaddr         *sa;
@@ -3210,7 +3205,9 @@ PHP_FUNCTION(redefine) /* {{{ */
 
 	ZVAL_UNDEF(&val_free);
 
+#if PHP_VERSION_ID < 80000
 repeat:
+#endif
 	switch (Z_TYPE_P(val)) {
 		case IS_LONG:
 		case IS_DOUBLE:
