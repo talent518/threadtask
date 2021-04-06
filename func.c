@@ -46,7 +46,7 @@ volatile unsigned int delay = 1;
 volatile zend_bool isDebug = 0;
 volatile zend_bool isReload = 0;
 
-static int php_threadtask_globals_id;
+static ts_rsrc_id php_threadtask_globals_id;
 #define SINFO(v) ZEND_TSRMG(php_threadtask_globals_id, php_threadtask_globals_struct *, v)
 
 static long le_threadtask_descriptor;
@@ -118,13 +118,13 @@ const char *gettimeofstr() {
 
 double microtime()
 {
-    struct timeval tp = {0};
+	struct timeval tp = {0};
 
-    if (gettimeofday(&tp, NULL)) {
-        return 0;
-    }   
+	if (gettimeofday(&tp, NULL)) {
+		return 0;
+	}   
 
-    return (double)(tp.tv_sec + tp.tv_usec / MICRO_IN_SEC);
+	return (double)(tp.tv_sec + tp.tv_usec / MICRO_IN_SEC);
 }
 
 void free_task(task_t *task) {
@@ -176,8 +176,29 @@ void thread_init() {
 	mthread = pthread_self();
 }
 
+#ifdef MYSQLI_USE_MYSQLND
+zend_class_entry *mysqli_link_class_entry;
+zend_class_entry *mysqli_stmt_class_entry;
+#endif
+
 void thread_running() {
 	if(PG(error_log) == NULL) PG(display_errors) = 0;
+
+#ifdef MYSQLI_USE_MYSQLND
+	{
+		zend_string *mysqli_str = zend_string_init(ZEND_STRL("mysqli"), 0);
+		zend_string *stmt_str = zend_string_init(ZEND_STRL("mysqli_stmt"), 0);
+
+		mysqli_link_class_entry = zend_lookup_class(mysqli_str);
+		dprintf("mysqli_link_class_entry: %p\n", mysqli_link_class_entry);
+
+		mysqli_stmt_class_entry = zend_lookup_class(stmt_str);
+		dprintf("mysqli_stmt_class_entry: %p\n", mysqli_stmt_class_entry);
+
+		zend_string_release_ex(mysqli_str, 0);
+		zend_string_release_ex(stmt_str, 0);
+	}
+#endif
 
 	dprintf("sizeof(Bucket) = %lu\n", sizeof(Bucket));
 	dprintf("sizeof(HashTable) = %lu\n", sizeof(HashTable));
@@ -303,7 +324,7 @@ void *thread_task(task_t *task) {
 newtask:
 	dprintf("[%s] newtask\n", task->name);
 
-    prctl(PR_SET_NAME, (unsigned long) task->name);
+	prctl(PR_SET_NAME, (unsigned long) task->name);
 
 	if(task->logfile && task->logmode) {
 		pthread_setspecific(pkey, task);
@@ -748,55 +769,55 @@ static PHP_FUNCTION(task_get_delay) {
 // -----------------------------------------------------------------------------------------------------------
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_pthread_sigmask, 0, 2, _IS_BOOL, 0)
-    ZEND_ARG_TYPE_INFO(0, mode, IS_LONG, 0)
-    ZEND_ARG_TYPE_INFO(0, signals, IS_ARRAY, 0)
+	ZEND_ARG_TYPE_INFO(0, mode, IS_LONG, 0)
+	ZEND_ARG_TYPE_INFO(0, signals, IS_ARRAY, 0)
 	ZEND_ARG_INFO(1, old_signals)
 ZEND_END_ARG_INFO()
 
 static PHP_FUNCTION(pthread_sigmask) {
-    zend_long          how, signo;
-    zval         *user_set, *user_oldset = NULL, *user_signo;
-    sigset_t      set, oldset;
+	zend_long how, signo;
+	zval *user_set, *user_oldset = NULL, *user_signo;
+	sigset_t set, oldset;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS(), "la|z/", &how, &user_set, &user_oldset) == FAILURE) {
-        RETURN_FALSE;
-    }
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "la|z/", &how, &user_set, &user_oldset) == FAILURE) {
+		RETURN_FALSE;
+	}
 
-    if (sigemptyset(&set) != 0 || sigemptyset(&oldset) != 0) { 
-        php_error_docref(NULL, E_WARNING, "%s", strerror(errno));
-        RETURN_FALSE;
-    }
+	if (sigemptyset(&set) != 0 || sigemptyset(&oldset) != 0) { 
+		php_error_docref(NULL, E_WARNING, "%s", strerror(errno));
+		RETURN_FALSE;
+	}
 
-    ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(user_set), user_signo) {
-        signo = zval_get_long(user_signo);
-        if (sigaddset(&set, signo) != 0) { 
-            php_error_docref(NULL, E_WARNING, "%s", strerror(errno));
-            RETURN_FALSE;
-        }    
-    } ZEND_HASH_FOREACH_END();
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(user_set), user_signo) {
+		signo = zval_get_long(user_signo);
+		if (sigaddset(&set, signo) != 0) { 
+			php_error_docref(NULL, E_WARNING, "%s", strerror(errno));
+			RETURN_FALSE;
+		}
+	} ZEND_HASH_FOREACH_END();
 
-    if (pthread_sigmask(how, &set, &oldset) != 0) { 
-        php_error_docref(NULL, E_WARNING, "%s", strerror(errno));
-        RETURN_FALSE;
-    }
+	if (pthread_sigmask(how, &set, &oldset) != 0) { 
+		php_error_docref(NULL, E_WARNING, "%s", strerror(errno));
+		RETURN_FALSE;
+	}
 
-    if (user_oldset != NULL) {
+	if (user_oldset != NULL) {
 		if (Z_TYPE_P(user_oldset) != IS_ARRAY) {
-            zval_ptr_dtor(user_oldset);
-            array_init(user_oldset);
-        } else {
-            zend_hash_clean(Z_ARRVAL_P(user_oldset));
-        }
+			zval_ptr_dtor(user_oldset);
+			array_init(user_oldset);
+		} else {
+			zend_hash_clean(Z_ARRVAL_P(user_oldset));
+		}
 
-        for (signo = 1; signo < NSIG; ++signo) {
-            if (sigismember(&oldset, signo) != 1) { 
-                continue;
-            }
-            add_next_index_long(user_oldset, signo);
-        }
-    }
+		for (signo = 1; signo < NSIG; ++signo) {
+			if (sigismember(&oldset, signo) != 1) { 
+				continue;
+			}
+			add_next_index_long(user_oldset, signo);
+		}
+	}
 
-    RETURN_TRUE;
+	RETURN_TRUE;
 }
 
 // ===========================================================================================================
@@ -805,37 +826,37 @@ static zend_class_entry *spl_ce_GoExitException;
 
 static int go_exit_handler(zend_execute_data *execute_data) {
 	if(SINFO(is_throw_exit)) {
-        const zend_op *opline = EX(opline);
-        zval ex;
-        zend_object *obj;
-        zval _exit_status;
-        zval *exit_status = NULL;
+		const zend_op *opline = EX(opline);
+		zval ex;
+		zend_object *obj;
+		zval _exit_status;
+		zval *exit_status = NULL;
 
-        if (opline->op1_type != IS_UNUSED) {
-            if (opline->op1_type == IS_CONST) {
-                // see: https://github.com/php/php-src/commit/e70618aff6f447a298605d07648f2ce9e5a284f5
+		if (opline->op1_type != IS_UNUSED) {
+			if (opline->op1_type == IS_CONST) {
+				// see: https://github.com/php/php-src/commit/e70618aff6f447a298605d07648f2ce9e5a284f5
 #ifdef EX_CONSTANT
-                exit_status = EX_CONSTANT(opline->op1);
+				exit_status = EX_CONSTANT(opline->op1);
 #else
-                exit_status = RT_CONSTANT(opline, opline->op1);
+				exit_status = RT_CONSTANT(opline, opline->op1);
 #endif
-            } else {
-                exit_status = EX_VAR(opline->op1.var);
-            }
-            if (Z_ISREF_P(exit_status)) {
-                exit_status = Z_REFVAL_P(exit_status);
-            }
-            ZVAL_DUP(&_exit_status, exit_status);
-            exit_status = &_exit_status;
-        } else {
-            exit_status = &_exit_status;
-            ZVAL_NULL(exit_status);
-        }
-        obj = zend_throw_exception(spl_ce_GoExitException, "In go function is run exit()", 0);
-        ZVAL_OBJ(&ex, obj);
-        Z_TRY_ADDREF_P(exit_status);
-        zend_update_property(spl_ce_GoExitException, Z_OBJ_PROP(&ex), ZEND_STRL("status"), exit_status);
-    }
+			} else {
+				exit_status = EX_VAR(opline->op1.var);
+			}
+			if (Z_ISREF_P(exit_status)) {
+				exit_status = Z_REFVAL_P(exit_status);
+			}
+			ZVAL_DUP(&_exit_status, exit_status);
+			exit_status = &_exit_status;
+		} else {
+			exit_status = &_exit_status;
+			ZVAL_NULL(exit_status);
+		}
+		obj = zend_throw_exception(spl_ce_GoExitException, "In go function is run exit()", 0);
+		ZVAL_OBJ(&ex, obj);
+		Z_TRY_ADDREF_P(exit_status);
+		zend_update_property(spl_ce_GoExitException, Z_OBJ_PROP(&ex), ZEND_STRL("status"), exit_status);
+	}
 
 	return ZEND_USER_OPCODE_DISPATCH;
 }
@@ -863,35 +884,35 @@ ZEND_END_ARG_INFO()
 
 static PHP_FUNCTION(go) {
 	zval retval;
-    zend_fcall_info fci; 
-    zend_fcall_info_cache fci_cache;
+	zend_fcall_info fci; 
+	zend_fcall_info_cache fci_cache;
 
-    ZEND_PARSE_PARAMETERS_START(1, -1)
-        Z_PARAM_FUNC(fci, fci_cache)
+	ZEND_PARSE_PARAMETERS_START(1, -1)
+		Z_PARAM_FUNC(fci, fci_cache)
 	#if PHP_VERSION_ID >= 80000
 		Z_PARAM_VARIADIC_WITH_NAMED(fci.params, fci.param_count, fci.named_params)
 	#else
-        Z_PARAM_VARIADIC('*', fci.params, fci.param_count)
+		Z_PARAM_VARIADIC('*', fci.params, fci.param_count)
 	#endif
-    ZEND_PARSE_PARAMETERS_END();
+	ZEND_PARSE_PARAMETERS_END();
 
-    fci.retval = &retval;
-    
-    zend_bool b = SINFO(is_throw_exit);
-    SINFO(is_throw_exit) = 1;
+	fci.retval = &retval;
+	
+	zend_bool b = SINFO(is_throw_exit);
+	SINFO(is_throw_exit) = 1;
 
 	zend_try {
 		if (zend_call_function(&fci, &fci_cache) == SUCCESS && Z_TYPE(retval) != IS_UNDEF) {
-		    if (Z_ISREF(retval)) {
-		        zend_unwrap_reference(&retval);
-		    }
-		    ZVAL_COPY_VALUE(return_value, &retval);
+			if (Z_ISREF(retval)) {
+				zend_unwrap_reference(&retval);
+			}
+			ZVAL_COPY_VALUE(return_value, &retval);
 		}
-    } zend_catch {
-        EG(exit_status) = 0;
+	} zend_catch {
+		EG(exit_status) = 0;
 	} zend_end_try();
 
-    SINFO(is_throw_exit) = b;
+	SINFO(is_throw_exit) = b;
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_call_and_free_shutdown, 0)
@@ -902,8 +923,8 @@ static PHP_FUNCTION(call_and_free_shutdown) {
 
 	zend_try {
 		php_call_shutdown_functions();
-    } zend_catch {
-        EG(exit_status) = 0;
+	} zend_catch {
+		EG(exit_status) = 0;
 	} zend_end_try();
 
 	php_free_shutdown_functions();
@@ -2642,10 +2663,10 @@ static PHP_FUNCTION(ts_var_get_or_set) {
 	zend_long index = 0;
 
 	zval retval;
-    zend_fcall_info fci;
-    zend_fcall_info_cache fci_cache;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fci_cache;
 
-    zend_long expire = 0;
+	zend_long expire = 0;
 	
 	ts_hash_table_t *ts_ht;
 	value_t v;
@@ -2653,13 +2674,13 @@ static PHP_FUNCTION(ts_var_get_or_set) {
 	ZEND_PARSE_PARAMETERS_START(3, -1)
 		Z_PARAM_RESOURCE(zv)
 		Z_PARAM_STR_OR_LONG(key, index)
-        Z_PARAM_FUNC(fci, fci_cache)
+		Z_PARAM_FUNC(fci, fci_cache)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_LONG(expire);
 	#if PHP_VERSION_ID >= 80000
 		Z_PARAM_VARIADIC_WITH_NAMED(fci.params, fci.param_count, fci.named_params)
 	#else
-        Z_PARAM_VARIADIC('*', fci.params, fci.param_count)
+		Z_PARAM_VARIADIC('*', fci.params, fci.param_count)
 	#endif
 	ZEND_PARSE_PARAMETERS_END();
 	
@@ -2906,12 +2927,12 @@ php_socket *socket_import_file_descriptor(PHP_SOCKET socket) {
 	int					 t;
 #endif
 
-    retsock = php_create_socket();
-    retsock->bsd_socket = socket;
+	retsock = php_create_socket();
+	retsock->bsd_socket = socket;
 
-    /* determine family */
+	/* determine family */
 #ifdef SO_DOMAIN
-    if (getsockopt(socket, SOL_SOCKET, SO_DOMAIN, &type, &type_len) == 0) {
+	if (getsockopt(socket, SOL_SOCKET, SO_DOMAIN, &type, &type_len) == 0) {
 		retsock->type = type;
 	} else
 #endif
@@ -2921,17 +2942,17 @@ php_socket *socket_import_file_descriptor(PHP_SOCKET socket) {
 		goto error;
 	}
 
-    /* determine blocking mode */
+	/* determine blocking mode */
 #ifndef PHP_WIN32
-    t = fcntl(socket, F_GETFL);
-    if (t == -1) {
+	t = fcntl(socket, F_GETFL);
+	if (t == -1) {
 		goto error;
-    } else {
-    	retsock->blocking = !(t & O_NONBLOCK);
-    }
+	} else {
+		retsock->blocking = !(t & O_NONBLOCK);
+	}
 #endif
 
-    return retsock;
+	return retsock;
 
 error:
 	efree(retsock);
@@ -3038,14 +3059,14 @@ static PHP_FUNCTION(socket_accept_ex) {
 	int fd;
 	php_sockaddr_storage sa_storage;
 	socklen_t salen = sizeof(php_sockaddr_storage);
-	struct sockaddr         *sa;
-	struct sockaddr_in		*sin;
+	struct sockaddr *sa;
+	struct sockaddr_in *sin;
 #if HAVE_IPV6
-	struct sockaddr_in6		*sin6;
-	char					addr6[INET6_ADDRSTRLEN+1];
+	struct sockaddr_in6 *sin6;
+	char addr6[INET6_ADDRSTRLEN+1];
 #endif
-	struct sockaddr_un		*s_un;
-	char					*addr_string;
+	struct sockaddr_un *s_un;
+	char *addr_string;
 
 	ZEND_PARSE_PARAMETERS_START(3, 3)
 		Z_PARAM_LONG(sockfd)
@@ -3096,6 +3117,91 @@ static PHP_FUNCTION(socket_accept_ex) {
 
 	socket_import_fd(fd, return_value);
 }
+
+// ===========================================================================================================
+
+#ifdef MYSQLI_USE_MYSQLND
+#include <mysqli/php_mysqli_structs.h>
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_mysqli_export_fd, 0, 0, 1)
+ZEND_ARG_OBJ_INFO(0, mysql, mysqli, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(mysqli_export_fd) {
+	MY_MYSQL *mysql;
+	zval *mysql_link;
+	php_stream *stream = NULL;
+	php_socket_t this_fd;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "O", &mysql_link, mysqli_link_class_entry) == FAILURE) {
+		#if PHP_VERSION_ID < 80000
+		RETURN_FALSE;
+		#else
+		RETURN_THROWS();
+		#endif
+	}
+	
+	MYSQLI_FETCH_RESOURCE_CONN(mysql, mysql_link, MYSQLI_STATUS_VALID);
+	
+	stream = mysql->mysql->data->vio->data->m.get_stream(mysql->mysql->data->vio);
+	if(stream != NULL && SUCCESS == php_stream_cast(stream, PHP_STREAM_AS_FD_FOR_SELECT | PHP_STREAM_CAST_INTERNAL, (void*)&this_fd, 1) && ZEND_VALID_SOCKET(this_fd)) {
+		RETURN_LONG(this_fd);
+	} else {
+		RETURN_FALSE;
+	}
+}
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_mysqli_stmt_async_execute, 0, 0, 1)
+ZEND_ARG_OBJ_INFO(0, statement, mysqli_stmt, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(mysqli_stmt_async_execute) {
+	MY_STMT *stmt;
+	zval *mysql_stmt;
+	
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "O", &mysql_stmt, mysqli_stmt_class_entry) == FAILURE) {
+		#if PHP_VERSION_ID < 80000
+		RETURN_FALSE;
+		#else
+		RETURN_THROWS();
+		#endif
+	}
+	
+	MYSQLI_FETCH_RESOURCE_STMT(stmt, mysql_stmt, MYSQLI_STATUS_VALID);
+	
+	if(FAIL == stmt->stmt->m->send_execute(stmt->stmt, MYSQLND_SEND_EXECUTE_IMPLICIT, NULL, NULL)) {
+		RETURN_FALSE;
+	} else {
+		RETURN_TRUE;
+	}
+}
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_mysqli_stmt_reap_async_query, 0, 0, 1)
+ZEND_ARG_OBJ_INFO(0, statement, mysqli_stmt, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(mysqli_stmt_reap_async_query) {
+	MY_STMT *stmt;
+	zval *mysql_stmt;
+	
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "O", &mysql_stmt, mysqli_stmt_class_entry) == FAILURE) {
+		#if PHP_VERSION_ID < 80000
+		RETURN_FALSE;
+		#else
+		RETURN_THROWS();
+		#endif
+	}
+	
+	MYSQLI_FETCH_RESOURCE_STMT(stmt, mysql_stmt, MYSQLI_STATUS_VALID);
+	
+	if(FAIL == stmt->stmt->m->parse_execute_response(stmt->stmt, MYSQLND_PARSE_EXEC_RESPONSE_IMPLICIT)) {
+		RETURN_FALSE;
+	} else {
+		RETURN_TRUE;
+	}
+}
+
+#endif
 
 // ===========================================================================================================
 
@@ -3174,9 +3280,9 @@ static void copy_constant_array(zval *dst, zval *src) /* {{{ */
 /* }}} */
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_redefine, 0, 0, 2)
-    ZEND_ARG_INFO(0, constant_name)
-    ZEND_ARG_INFO(0, value)
-    ZEND_ARG_INFO(0, case_insensitive)
+	ZEND_ARG_INFO(0, constant_name)
+	ZEND_ARG_INFO(0, value)
+	ZEND_ARG_INFO(0, case_insensitive)
 ZEND_END_ARG_INFO()
 
 PHP_FUNCTION(redefine) /* {{{ */
@@ -3338,6 +3444,12 @@ static const zend_function_entry ext_functions[] = {
 	PHP_FE(socket_export_fd, arginfo_socket_export_fd)
 	PHP_FE(socket_import_fd, arginfo_socket_import_fd)
 	PHP_FE(socket_accept_ex, arginfo_socket_accept_ex)
+
+#ifdef MYSQLI_USE_MYSQLND
+	PHP_FE(mysqli_export_fd, arginfo_mysqli_export_fd)
+	PHP_FE(mysqli_stmt_async_execute, arginfo_mysqli_stmt_async_execute)
+	PHP_FE(mysqli_stmt_reap_async_query, arginfo_mysqli_stmt_reap_async_query)
+#endif
 	
 	{NULL, NULL, NULL}
 };
