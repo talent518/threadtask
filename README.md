@@ -125,14 +125,19 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
   * $addr: string 客户端IP地址
   * $port: int 客户端端口号
 
-#### 5. 代码块执行超时处理
+#### 5. mysqli附加函数
+* 导出mysqli文件描述符为整型: mysqli_export_fd(mysqli $mysql): int|false
+* 异步执行mysqli预处理SQL: mysqli_stmt_async_execute(mysqli_stmt $stmt): bool
+* 获取mysqli预处理SQL的执行结果: mysqli_stmt_reap_async_query(mysqli_stmt $stmt): bool
+
+#### 6. 代码块执行超时处理
 * 设置超时: set_timeout(int $seconds = 1): bool
 * 清除超时: clear_timeout(): bool
 * 触发超时: trigger_timeout(int $signal = SIGALRM): bool
   * $signal: 向任务线程发送的信号，使用 pcntrl_signal()函数绑定信号处理函数
 * 示例: http-server.php中有使用
 
-#### 6. PHP行为函数
+#### 7. PHP行为函数
 * go: go(is_callable $call, $args...): mixed
 * 调用并清除由register_shutdown_function注册的php中止函数: call_and_free_shutdown()
 * 重新定义常量：redefine(string $name, mixed $value, bool $case_insensitive)
