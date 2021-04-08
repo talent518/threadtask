@@ -52,13 +52,6 @@
 		hash_table_do_resize(ht);					\
 	}
 
-#define CHECK_INIT(ht) do {															\
-	if (UNEXPECTED((ht)->nTableMask == 0)) {										\
-		(ht)->arBuckets = (bucket_t **) calloc((ht)->nTableSize, sizeof(bucket_t *));	\
-		(ht)->nTableMask = (ht)->nTableSize - 1;									\
-	}																				\
-} while (0)
-
 void hash_table_value_free(value_t *value) {
 	switch(value->type) {
 	case STR_T:
@@ -188,6 +181,7 @@ int _hash_table_init(hash_table_t *ht, uint nSize, hash_dtor_func_t pDestructor)
 	ht->pDestructor = pDestructor;
 	ht->arBuckets = (bucket_t **) malloc(ht->nTableSize * sizeof(bucket_t *));
 	memset(ht->arBuckets, 0, ht->nTableSize * sizeof(bucket_t *));
+	ht->nTableMask = ht->nTableSize - 1;
 	return SUCCESS;
 }
 
@@ -197,8 +191,6 @@ int _hash_table_add_or_update(hash_table_t *ht, const char *arKey, uint nKeyLeng
 	bucket_t *p;
 
 	ZEND_ASSERT(nKeyLength != 0);
-
-	CHECK_INIT(ht);
 
 	h = hash_table_func(arKey, nKeyLength);
 	nIndex = h & ht->nTableMask;
@@ -238,7 +230,6 @@ int _hash_table_quick_add_or_update(hash_table_t *ht, const char *arKey, uint nK
 
 	ZEND_ASSERT(nKeyLength != 0);
 
-	CHECK_INIT(ht);
 	nIndex = h & ht->nTableMask;
 
 	p = ht->arBuckets[nIndex];
@@ -274,8 +265,6 @@ int _hash_table_quick_add_or_update(hash_table_t *ht, const char *arKey, uint nK
 int _hash_table_index_update_or_next_insert(hash_table_t *ht, ulong h, value_t *pData, int flag) {
 	uint nIndex;
 	bucket_t *p;
-
-	CHECK_INIT(ht);
 
 	if (flag & HASH_TABLE_NEXT_INSERT) {
 		h = ht->nNextFreeElement;
