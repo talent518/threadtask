@@ -98,7 +98,7 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
   * $callback: 将被调用的回调函数
   * $expire: 过期时间戳，为0时永不过期
   * $parameters: 0个或以上的参数，被传入回调函数
-  * **注意：**使用CFLAGS=-DLOCK_TIMEOUT=1 make进行编译可以调试死锁，性能有些差
+  * **注意：**使用CFLAGS=-DCHECK_LOCK_LEVEL=1 make进行编译可以调试死锁，性能有些差(CHECK_LOCK_LEVEL取值范围1到3的整数，分别代表：1. 同线程重复加锁检查，2. 单层交叉死锁检查，3. 递归交叉锁检查)
 * 删除线程安全变量中的数据：ts_var_del(resource $var, string|int $key): bool
   * $var: 由ts_var_declare函数返回的变量
   * $key: 键名，可为字符串或整形
