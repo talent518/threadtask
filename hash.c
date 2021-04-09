@@ -529,58 +529,125 @@ int hash_table_index_find(const hash_table_t *ht, ulong h, value_t *pData) {
 	return FAILURE;
 }
 
-#ifdef LOCK_TIMEOUT
+#ifdef CHECK_LOCK_LEVEL
 pthread_key_t tskey;
 
-static int ts_table_table_tid_apply(bucket_t *p) {
-	fprintf(stderr, "No unlocked pointer ts_hash_table_t: %p\n", *(ts_hash_table_t**)p->arKey);
+#define str2ptr_ex(p,t) (*(t**)p)
+#define str2ptr(p) str2ptr_ex(p,void)
+
+static int ts_hash_table_try_apply(bucket_t *p) {
+	fprintf(stderr, "No unlocked pointer ts_hash_table_t: %p\n", str2ptr(p->arKey));
 	return HASH_TABLE_APPLY_REMOVE;
 }
 
-void ts_table_table_tid_destroy(void *hh) {
+void ts_hash_table_try_destroy(void *hh) {
 	tskey_hash_table_t *ts = (tskey_hash_table_t*) hh;
 	if(ts) {
-		hash_table_apply(&ts->ht, (hash_apply_func_t) ts_table_table_tid_apply);
+		hash_table_apply(&ts->ht, (hash_apply_func_t) ts_hash_table_try_apply);
 		hash_table_destroy(&ts->ht);
-		pthread_mutex_destroy(&ts->lock);
+		pthread_mutex_destroy(&ts->rlock);
+		pthread_mutex_destroy(&ts->wlock);
 		free(ts);
 	}
 }
 
-long int ts_table_table_tid_inc(ts_hash_table_t *hh) {
+#define TS_DUP_LOCK_MSG "Repeated locking of shared variables by multiple threads."
+#define TS_CROSS_MILD_MSG "Mild cross deadlock of multithread shared variables."
+#define TS_CROSS_DEEP_MSG "Deep cross deadlock of multithreaded shared variables."
+
+static void ts_hash_table_deadlock(const char *msg) {
+	zval *name = zend_get_constant_str(ZEND_STRL("THREAD_TASK_NAME"));
+	zend_throw_exception_ex(zend_ce_exception, 0, "[%s][%s] %s", gettimeofstr(), name ? Z_STRVAL_P(name) : "main", msg);
+	zend_try {
+		zend_exception_error(EG(exception), E_WARNING);
+	} zend_end_try();
+	zend_clear_exception();
+}
+
+#if CHECK_LOCK_LEVEL == 1
+#define ts_hash_table_is_cross_lock(...) 0
+#elif CHECK_LOCK_LEVEL == 2
+#define ts_hash_table_is_cross_lock2(...) 0
+#else
+#define ts_hash_table_is_cross_lock2(args...) ts_hash_table_is_cross_lock(args)
+#endif
+
+static zend_always_inline void ts_hash_table_key_lock(tskey_hash_table_t *tsht) {
+	pthread_mutex_lock(&tsht->rlock);
+	if((++tsht->rd_count) == 1) pthread_mutex_lock(&tsht->wlock);
+	pthread_mutex_unlock(&tsht->rlock);
+}
+
+static zend_always_inline void ts_hash_table_key_unlock(tskey_hash_table_t *tsht) {
+	pthread_mutex_lock(&tsht->rlock);
+	if((--tsht->rd_count) == 0) pthread_mutex_unlock(&tsht->wlock);
+	pthread_mutex_unlock(&tsht->rlock);
+}
+
+#if CHECK_LOCK_LEVEL > 1
+static zend_bool ts_hash_table_is_cross_lock(void *cross, tskey_hash_table_t *tsht, zend_bool is_read) {
+	ts_hash_table_t *h;
+	bucket_t *p;
+	zend_bool b = 0;
+
+	ts_hash_table_key_lock(tsht);
+
+	p = tsht->ht.pListHead;
+	while (p != NULL) {
+		h = str2ptr_ex(p->arKey, ts_hash_table_t);
+		if(h->tsht != NULL && h->tsht != tsht && (h->tsht == cross || (b = ts_hash_table_is_cross_lock2(cross, h->tsht, is_read)))) {
+			ts_hash_table_key_unlock(tsht);
+			return 1+b;
+		}
+		p = p->pListNext;
+	}
+
+	ts_hash_table_key_unlock(tsht);
+
+	return 0;
+}
+#endif
+
+void ts_hash_table_try_lock(tskey_hash_table_t *tsht, ts_hash_table_t *hh, zend_bool is_read) {
 	uint nIndex;
 	bucket_t *p;
 	register ulong h = hh->h;
+	hash_table_t *ht;
+	zend_bool b;
 	
-	tskey_hash_table_t *ts = pthread_getspecific(tskey);
-	if(ts == NULL) {
-		ts = (tskey_hash_table_t *) malloc(sizeof(tskey_hash_table_t));
-		hash_table_init_ex(&ts->ht, 3, NULL);
-		pthread_mutex_init(&ts->lock, NULL);
-		pthread_setspecific(tskey, ts);
+	if(tsht == NULL) {
+		tsht = (tskey_hash_table_t *) malloc(sizeof(tskey_hash_table_t));
+		tsht->rd_count = 0;
+		hash_table_init_ex(&tsht->ht, 3, NULL);
+		pthread_mutex_init(&tsht->rlock, NULL);
+		pthread_mutex_init(&tsht->wlock, NULL);
+		pthread_setspecific(tskey, tsht);
 	}
-	hash_table_t *ht = &ts->ht;
 	
-	pthread_mutex_lock(&ts->lock);
+	pthread_mutex_lock(&tsht->wlock);
 
+	ht = &tsht->ht;
 	nIndex = h & ht->nTableMask;
 
 	p = ht->arBuckets[nIndex];
 	while (p != NULL) {
-		if (p->h == h && p->nKeyLength == sizeof(void*) && *(void**)p->arKey == hh) {
+		if(p->h == h && p->nKeyLength == sizeof(void*) && str2ptr(p->arKey) == hh) {
 			p->value.l++;
-			pthread_mutex_unlock(&ts->lock);
-			return p->value.l;
+			pthread_mutex_unlock(&tsht->wlock);
+			ts_hash_table_deadlock(TS_DUP_LOCK_MSG);
+			return;
 		}
 		p = p->pNext;
 	}
-
+	
 	p = (bucket_t *) malloc(sizeof(bucket_t)+sizeof(void*));
-	*((void**)p->arKey) = hh;
+	str2ptr(p->arKey) = hh;
 	p->arKey[sizeof(void*)] = '\0';
 	p->nKeyLength = sizeof(void*); /* Numeric indices are marked by making the nKeyLength == 0 */
 	p->h = h;
+
 	p->value.type = LONG_T;
+
 	p->value.l = 1;
 
 	CONNECT_TO_BUCKET_DLLIST(p, ht->arBuckets[nIndex]);
@@ -590,38 +657,56 @@ long int ts_table_table_tid_inc(ts_hash_table_t *hh) {
 	ht->nNumOfElements++;
 	HASH_TABLE_IF_FULL_DO_RESIZE(ht);
 	
-	pthread_mutex_unlock(&ts->lock);
+	pthread_mutex_unlock(&tsht->wlock);
 	
-	return 1;
+	// ts_hash_table_key_lock(tsht);
+	if(hh->tsht && (b = ts_hash_table_is_cross_lock(tsht, hh->tsht, is_read))) {
+		p->value.type = NULL_T;
+		if(b > 1) {
+			ts_hash_table_deadlock(TS_CROSS_DEEP_MSG);
+		} else {
+			ts_hash_table_deadlock(TS_CROSS_MILD_MSG);
+		}
+	} else {
+		pthread_mutex_lock(&hh->wlock);
+		hh->tsht = tsht;
+	}
+	// ts_hash_table_key_unlock(tsht);
 }
 
-long int ts_table_table_tid_dec_ex(tskey_hash_table_t *tsht, ts_hash_table_t *hh) {
+void ts_hash_table_try_unlock(tskey_hash_table_t *tsht, ts_hash_table_t *hh, zend_bool is_read) {
 	bucket_t *p;
 	register ulong h = hh->h;
-	if(tsht == NULL) {
-		return -1;
-	}
-
 	hash_table_t *ht = &tsht->ht;
 
-	pthread_mutex_lock(&tsht->lock);
+	pthread_mutex_lock(&tsht->wlock);
 	p = ht->arBuckets[h & ht->nTableMask];
-	while (p != NULL) {
-		if (p->h == h && p->nKeyLength == sizeof(void*) && *(void**)p->arKey == hh) {
+	while(p != NULL) {
+		if(p->h == h && p->nKeyLength == sizeof(void*) && str2ptr(p->arKey) == hh) {
 			if(--p->value.l == 0) {
+				if(p->value.type == LONG_T) {
+					if(hh->tsht == tsht) {
+						hh->tsht = NULL;
+						pthread_mutex_unlock(&hh->wlock);
+						// printf("%32s: %d\n", __func__, __LINE__);
+					} else {
+						hash_table_bucket_delete(ht, p);
+						pthread_mutex_unlock(&tsht->wlock);
+						ts_hash_table_try_unlock(hh->tsht, hh, is_read);
+						return;
+					}
+				}
+
 				hash_table_bucket_delete(ht, p);
-				pthread_mutex_unlock(&tsht->lock);
-				return 0;
-			} else {
-				pthread_mutex_unlock(&tsht->lock);
-				return p->value.l;
 			}
+			pthread_mutex_unlock(&tsht->wlock);
+			return;
 		}
 		p = p->pNext;
 	}
-	pthread_mutex_unlock(&tsht->lock);
+	pthread_mutex_unlock(&tsht->wlock);
 
-	return -1;
+	ts_hash_table_try_unlock(hh->tsht, hh, is_read);
 }
 #endif
 
@@ -632,8 +717,8 @@ int hash_table_index_exists(const hash_table_t *ht, ulong h) {
 	nIndex = h & ht->nTableMask;
 
 	p = ht->arBuckets[nIndex];
-	while (p != NULL) {
-		if ((p->h == h) && (p->nKeyLength == 0)) {
+	while(p != NULL) {
+		if((p->h == h) && (p->nKeyLength == 0)) {
 			return 1;
 		}
 		p = p->pNext;

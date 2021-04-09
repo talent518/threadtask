@@ -181,14 +181,21 @@ static zend_always_inline void hash_table_bucket_delete(hash_table_t *ht, bucket
 #include <time.h>
 #include <zend_exceptions.h>
 
-#if defined(LOCK_TIMEOUT) && LOCK_TIMEOUT <= 0
-#undef LOCK_TIMEOUT
+// CHECK_LOCK_LEVEL 取值范围：1 ~ 3，否则无效
+#if defined(CHECK_LOCK_LEVEL)
+#if CHECK_LOCK_LEVEL <= 0
+#undef CHECK_LOCK_LEVEL
+#elif CHECK_LOCK_LEVEL > 3
+#undef CHECK_LOCK_LEVEL
+#endif
 #endif
 
-#ifdef LOCK_TIMEOUT
+#ifdef CHECK_LOCK_LEVEL
 typedef struct _tskey_hash_table_t {
 	hash_table_t ht;
-	pthread_mutex_t lock;
+	pthread_mutex_t wlock;
+	pthread_mutex_t rlock;
+	volatile unsigned int rd_count;
 } tskey_hash_table_t;
 #endif
 
@@ -200,7 +207,7 @@ typedef struct ts_hash_table_t {
 	pthread_mutex_t wlock;
 	pthread_mutex_t rlock;
 	int fds[2];
-#ifdef LOCK_TIMEOUT
+#ifdef CHECK_LOCK_LEVEL
 	tskey_hash_table_t *tsht;
 	ulong h;
 #endif
@@ -212,10 +219,11 @@ static zend_always_inline int _ts_hash_table_init(ts_hash_table_t *ts_ht, uint n
 	ts_ht->fds[0] = 0;
 	ts_ht->fds[1] = 0;
 	ts_ht->expire = 0;
-#ifdef LOCK_TIMEOUT
+#ifdef CHECK_LOCK_LEVEL
 	ts_ht->tsht = NULL;
 	ts_ht->h = hash_table_func((const char*) &ts_ht, sizeof(void*));
 #endif
+	// printf("\033[31mINIT\033[0m: %p\n", ts_ht);
 	pthread_mutex_init(&ts_ht->rlock, NULL);
 	pthread_mutex_init(&ts_ht->wlock, NULL);
 	return _hash_table_init(&ts_ht->ht, nSize, pDestructor);
@@ -232,59 +240,38 @@ static zend_always_inline void ts_hash_table_unlock(ts_hash_table_t *ts_ht) {
 	pthread_mutex_unlock(&ts_ht->rlock);
 }
 
-#ifdef LOCK_TIMEOUT
+#ifdef CHECK_LOCK_LEVEL
 extern pthread_key_t tskey;
-void ts_table_table_tid_destroy(void *hh);
-long int ts_table_table_tid_inc(ts_hash_table_t *hh);
-long int ts_table_table_tid_dec_ex(tskey_hash_table_t *tsht, ts_hash_table_t *hh);
-#define ts_table_table_tid_dec(ht) ts_table_table_tid_dec_ex(pthread_getspecific(tskey), ht)
+void ts_hash_table_try_destroy(void *hh);
+void ts_hash_table_try_lock(tskey_hash_table_t *tsht, ts_hash_table_t *hh, zend_bool is_read);
+void ts_hash_table_try_unlock(tskey_hash_table_t *tsht, ts_hash_table_t *hh, zend_bool is_read);
 const char *gettimeofstr();
-static zend_always_inline void ts_hash_table_deadlock() {
-	zval *name = zend_get_constant_str(ZEND_STRL("THREAD_TASK_NAME"));
-	zend_throw_exception_ex(zend_ce_exception, 0, "[%s][%s] A thread sharing variable creates a deadlock.", gettimeofstr(), name ? Z_STRVAL_P(name) : "main");
-	zend_exception_error(EG(exception), E_ERROR);
-	zend_clear_exception();
+
+#define _ts_hash_table_wr_lock(ts_ht, is_read) ts_hash_table_try_lock(pthread_getspecific(tskey), ts_ht, is_read)
+#define _ts_hash_table_wr_unlock(ts_ht, is_read) ts_hash_table_try_unlock(pthread_getspecific(tskey), ts_ht, is_read)
+#define ts_hash_table_wr_lock(ts_ht) _ts_hash_table_wr_lock(ts_ht, 0)
+#define ts_hash_table_wr_unlock(ts_ht) _ts_hash_table_wr_unlock(ts_ht, 0)
+
+static zend_always_inline void ts_hash_table_rd_lock(ts_hash_table_t *ts_ht) {
+	pthread_mutex_lock(&ts_ht->rlock);
+	if((++ts_ht->rd_count) == 1) _ts_hash_table_wr_lock(ts_ht, 1);
+	pthread_mutex_unlock(&ts_ht->rlock);
 }
-#endif
+
+static zend_always_inline void ts_hash_table_rd_unlock(ts_hash_table_t *ts_ht) {
+	pthread_mutex_lock(&ts_ht->rlock);
+	if((--ts_ht->rd_count) == 0) _ts_hash_table_wr_unlock(ts_ht, 1);
+	pthread_mutex_unlock(&ts_ht->rlock);
+}
+
+#else
 
 static zend_always_inline void ts_hash_table_wr_lock(ts_hash_table_t *ts_ht) {
-#ifndef LOCK_TIMEOUT
 	pthread_mutex_lock(&ts_ht->wlock);
-#else
-	if(ts_table_table_tid_inc(ts_ht) == 1) {
-		// printf("%p   lock\n", ts_ht);
-		struct timespec ts;
-		clock_gettime(CLOCK_REALTIME, &ts);
-		ts.tv_sec += LOCK_TIMEOUT;
-		if(pthread_mutex_timedlock(&ts_ht->wlock, &ts)) {
-			ts_hash_table_deadlock();
-			pthread_mutex_lock(&ts_ht->wlock);
-		}
-		ts_ht->tsht = pthread_getspecific(tskey);
-	}
-#endif
 }
 
 static zend_always_inline void ts_hash_table_wr_unlock(ts_hash_table_t *ts_ht) {
-#ifndef LOCK_TIMEOUT
 	pthread_mutex_unlock(&ts_ht->wlock);
-#else
-	long int i = ts_table_table_tid_dec(ts_ht);
-	if(i == 0) {
-		ts_ht->tsht = NULL;
-		// printf("%p unlock\n", ts_ht);
-		pthread_mutex_unlock(&ts_ht->wlock);
-	} else if(i < 0) {
-		i = ts_table_table_tid_dec_ex(ts_ht->tsht, ts_ht);
-		if(i == 0) {
-			ts_ht->tsht = NULL;
-			// printf("%p unlock\n", ts_ht);
-			pthread_mutex_unlock(&ts_ht->wlock);
-		} else {
-			ts_hash_table_deadlock();
-		}
-	}
-#endif
 }
 
 static zend_always_inline void ts_hash_table_rd_lock(ts_hash_table_t *ts_ht) {
@@ -299,6 +286,8 @@ static zend_always_inline void ts_hash_table_rd_unlock(ts_hash_table_t *ts_ht) {
 	pthread_mutex_unlock(&ts_ht->rlock);
 }
 
+#endif
+
 static zend_always_inline void ts_hash_table_ref(ts_hash_table_t *ts_ht) {
 	ts_hash_table_lock(ts_ht);
 	ts_ht->ref_count++;
@@ -308,6 +297,7 @@ static zend_always_inline void ts_hash_table_ref(ts_hash_table_t *ts_ht) {
 #define ts_hash_table_unref(ts_ht) ts_hash_table_destroy(ts_ht)
 
 static zend_always_inline void ts_hash_table_destroy_ex(ts_hash_table_t *ts_ht, int is_free) {
+	// printf("\033[31mDEST\033[0m: %p\n", ts_ht);
 	ts_hash_table_lock(ts_ht);
 	if(--ts_ht->ref_count == 0) {
 		ts_hash_table_unlock(ts_ht);
