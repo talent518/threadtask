@@ -537,6 +537,15 @@ static int ts_table_table_tid_apply(bucket_t *p) {
 	return HASH_TABLE_APPLY_REMOVE;
 }
 
+void ts_hash_table_deadlock() {
+	zval *name = zend_get_constant_str(ZEND_STRL("THREAD_TASK_NAME"));
+	zend_throw_exception_ex(zend_ce_exception, 0, "[%s][%s] A thread sharing variable creates a deadlock.", gettimeofstr(), name ? Z_STRVAL_P(name) : "main");
+	zend_try {
+		zend_exception_error(EG(exception), E_ERROR);
+	} zend_end_try();
+	zend_clear_exception();
+}
+
 void ts_table_table_tid_destroy(void *hh) {
 	tskey_hash_table_t *ts = (tskey_hash_table_t*) hh;
 	if(ts) {

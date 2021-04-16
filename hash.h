@@ -239,12 +239,7 @@ long int ts_table_table_tid_inc(ts_hash_table_t *hh);
 long int ts_table_table_tid_dec_ex(tskey_hash_table_t *tsht, ts_hash_table_t *hh);
 #define ts_table_table_tid_dec(ht) ts_table_table_tid_dec_ex(pthread_getspecific(tskey), ht)
 const char *gettimeofstr();
-static zend_always_inline void ts_hash_table_deadlock() {
-	zval *name = zend_get_constant_str(ZEND_STRL("THREAD_TASK_NAME"));
-	zend_throw_exception_ex(zend_ce_exception, 0, "[%s][%s] A thread sharing variable creates a deadlock.", gettimeofstr(), name ? Z_STRVAL_P(name) : "main");
-	zend_exception_error(EG(exception), E_ERROR);
-	zend_clear_exception();
-}
+void ts_hash_table_deadlock();
 #endif
 
 static zend_always_inline void ts_hash_table_wr_lock(ts_hash_table_t *ts_ht) {
