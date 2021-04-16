@@ -212,6 +212,7 @@ void thread_running() {
 #ifdef LOCK_TIMEOUT
 	dprintf("sizeof(tskey_hash_table_t) = %lu\n", sizeof(tskey_hash_table_t));
 #endif
+	dprintf("sizeof(sem_t) = %lu\n", sizeof(sem_t));
 	dprintf("sizeof(pthread_t) = %lu\n", sizeof(pthread_t));
 	dprintf("sizeof(pthread_mutex_t) = %lu\n", sizeof(pthread_mutex_t));
 	dprintf("sizeof(pthread_rwlock_t) = %lu\n", sizeof(pthread_rwlock_t));
@@ -2702,15 +2703,19 @@ static PHP_FUNCTION(ts_var_get_or_set) {
 			if(hash_table_quick_find(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v) == SUCCESS) {
 				value_to_zval(&v, return_value);
 			} else {
-				if (zend_call_function(&fci, &fci_cache) == SUCCESS && Z_TYPE(retval) != IS_UNDEF) {
-					if (Z_ISREF(retval)) {
-						zend_unwrap_reference(&retval);
+				zend_try {
+					if (zend_call_function(&fci, &fci_cache) == SUCCESS && Z_TYPE(retval) != IS_UNDEF) {
+						if (Z_ISREF(retval)) {
+							zend_unwrap_reference(&retval);
+						}
+						zval_to_value(&retval, &v);
+						v.expire = expire;
+						hash_table_quick_update(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v, NULL);
+						ZVAL_COPY_VALUE(return_value, &retval);
 					}
-					zval_to_value(&retval, &v);
-					v.expire = expire;
-					hash_table_quick_update(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v, NULL);
-					ZVAL_COPY_VALUE(return_value, &retval);
-				}
+				} zend_catch {
+					EG(exit_status) = 0;
+				} zend_end_try();
 			}
 			ts_hash_table_wr_unlock(ts_ht);
 		}
@@ -2724,15 +2729,19 @@ static PHP_FUNCTION(ts_var_get_or_set) {
 			if(hash_table_index_find(&ts_ht->ht, index, &v) == SUCCESS) {
 				value_to_zval(&v, return_value);
 			} else {
-				if (zend_call_function(&fci, &fci_cache) == SUCCESS && Z_TYPE(retval) != IS_UNDEF) {
-					if (Z_ISREF(retval)) {
-						zend_unwrap_reference(&retval);
+				zend_try {
+					if (zend_call_function(&fci, &fci_cache) == SUCCESS && Z_TYPE(retval) != IS_UNDEF) {
+						if (Z_ISREF(retval)) {
+							zend_unwrap_reference(&retval);
+						}
+						zval_to_value(&retval, &v);
+						v.expire = expire;
+						hash_table_index_update(&ts_ht->ht, index, &v, NULL);
+						ZVAL_COPY_VALUE(return_value, &retval);
 					}
-					zval_to_value(&retval, &v);
-					v.expire = expire;
-					hash_table_index_update(&ts_ht->ht, index, &v, NULL);
-					ZVAL_COPY_VALUE(return_value, &retval);
-				}
+				} zend_catch {
+					EG(exit_status) = 0;
+				} zend_end_try();
 			}
 			ts_hash_table_wr_unlock(ts_ht);
 		}
