@@ -585,7 +585,7 @@ static zend_always_inline void ts_hash_table_key_unlock(tskey_hash_table_t *tsht
 }
 
 #if CHECK_LOCK_LEVEL > 1
-static zend_bool ts_hash_table_is_cross_lock(void *cross, tskey_hash_table_t *tsht, zend_bool is_read) {
+static int ts_hash_table_is_cross_lock(void *cross, tskey_hash_table_t *tsht, zend_bool is_read) {
 	ts_hash_table_t *h;
 	bucket_t *p;
 	zend_bool b = 0;
@@ -613,7 +613,7 @@ void ts_hash_table_try_lock(tskey_hash_table_t *tsht, ts_hash_table_t *hh, zend_
 	bucket_t *p;
 	register ulong h = hh->h;
 	hash_table_t *ht;
-	zend_bool b;
+	int b;
 	
 	if(tsht == NULL) {
 		tsht = (tskey_hash_table_t *) malloc(sizeof(tskey_hash_table_t));
