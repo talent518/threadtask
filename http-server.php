@@ -712,7 +712,7 @@ function onMediaFile(HttpRequest $request, HttpResponse $response, string $path,
 		'txt' => 'text/plain',
 		'htm' => 'text/html',
 		'html' => 'text/html',
-		'php' => 'text/html',
+		'php' => 'text/plain; charset=utf-8',
 		'css' => 'text/css',
 		'js' => 'text/javascript',
 		'json' => 'application/json',
@@ -893,12 +893,12 @@ function onMediaFile(HttpRequest $request, HttpResponse $response, string $path,
 <?php
 		return ob_get_clean();
 	} elseif(is_file($path)) {
-		if(isset($request->get['format']) && pathinfo($request->path, PATHINFO_EXTENSION) === 'php') {
+		$ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+		if(isset($request->get['format']) && $ext === 'php') {
 			return ($buf = highlight_file($path, true)) === false ? null : $buf;
 		}
 
 		if(($fp = @fopen($path, 'r')) !== false) {
-			$ext = pathinfo($path, PATHINFO_EXTENSION);
 			if(isset($MIME_TYPES[$ext])) $response->setContentType($MIME_TYPES[$ext]); else unset($response->headers['Content-Type']);
 			$stat = @fstat($fp);
 			if($stat === false) {
