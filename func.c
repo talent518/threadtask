@@ -164,8 +164,8 @@ void thread_init() {
 	pthread_cond_init(&ncond, NULL);
 	pthread_key_create(&pkey, NULL);
 	pthread_setspecific(pkey, NULL);
-#ifdef CHECK_LOCK_LEVEL
-	pthread_key_create(&tskey, ts_hash_table_try_destroy);
+#ifdef LOCK_TIMEOUT
+	pthread_key_create(&tskey, ts_table_table_tid_destroy);
 	pthread_setspecific(tskey, NULL);
 #endif
 	pthread_mutex_init(&tlock, NULL);
@@ -209,7 +209,7 @@ void thread_running() {
 	dprintf("sizeof(bucket_t) = %lu\n", sizeof(bucket_t));
 	dprintf("sizeof(hash_table_t) = %lu\n", sizeof(hash_table_t));
 	dprintf("sizeof(ts_hash_table_t) = %lu\n", sizeof(ts_hash_table_t));
-#ifdef CHECK_LOCK_LEVEL
+#ifdef LOCK_TIMEOUT
 	dprintf("sizeof(tskey_hash_table_t) = %lu\n", sizeof(tskey_hash_table_t));
 #endif
 	dprintf("sizeof(pthread_t) = %lu\n", sizeof(pthread_t));
@@ -227,7 +227,7 @@ void thread_destroy() {
 
 	pthread_mutex_destroy(&tlock);
 
-#ifdef CHECK_LOCK_LEVEL
+#ifdef LOCK_TIMEOUT
 	pthread_key_delete(tskey);
 #endif
 	pthread_key_delete(pkey);
@@ -315,7 +315,7 @@ void *thread_task(task_t *task) {
 
 	sem_wait(&wsem);
 
-#ifdef CHECK_LOCK_LEVEL
+#ifdef LOCK_TIMEOUT
 	pthread_setspecific(tskey, NULL);
 #endif
 
