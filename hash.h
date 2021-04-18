@@ -239,7 +239,7 @@ long int ts_table_table_tid_inc(ts_hash_table_t *hh);
 long int ts_table_table_tid_dec_ex(tskey_hash_table_t *tsht, ts_hash_table_t *hh);
 #define ts_table_table_tid_dec(ht) ts_table_table_tid_dec_ex(pthread_getspecific(tskey), ht)
 const char *gettimeofstr();
-void ts_hash_table_deadlock();
+void ts_hash_table_deadlock(const char *msg);
 #endif
 
 static zend_always_inline void ts_hash_table_wr_lock(ts_hash_table_t *ts_ht) {
@@ -252,10 +252,12 @@ static zend_always_inline void ts_hash_table_wr_lock(ts_hash_table_t *ts_ht) {
 		clock_gettime(CLOCK_REALTIME, &ts);
 		ts.tv_sec += LOCK_TIMEOUT;
 		if(pthread_mutex_timedlock(&ts_ht->wlock, &ts)) {
-			ts_hash_table_deadlock();
+			ts_hash_table_deadlock("Deadlock caused by shared variables");
 			pthread_mutex_lock(&ts_ht->wlock);
 		}
 		ts_ht->tsht = pthread_getspecific(tskey);
+	} else {
+		ts_hash_table_deadlock("Repeated locking of shared variables");
 	}
 #endif
 }
@@ -275,8 +277,8 @@ static zend_always_inline void ts_hash_table_wr_unlock(ts_hash_table_t *ts_ht) {
 			ts_ht->tsht = NULL;
 			// printf("%p unlock\n", ts_ht);
 			pthread_mutex_unlock(&ts_ht->wlock);
-		} else {
-			ts_hash_table_deadlock();
+		} else if(i < 0) {
+			ts_hash_table_deadlock("Shared variable unlocking exception");
 		}
 	}
 #endif
