@@ -62,7 +62,7 @@ if(defined('THREAD_TASK_NAME')) {
 			$o = new stdClass;
 			$o->a = 0;
 			while($running) {
-				$a = share_var_inc($var, null, $o);
+				$a = ts_var_inc($var, null, $o);
 				$o->a = $a;
 				echo "\033[31m$n:\033[0m $a\n";
 			}
@@ -85,8 +85,6 @@ ini_set('memory_limit', -1);
 
 $time = microtime(true);
 
-share_var_init();
-
 $n = ($_SERVER['argv'][1]??4);
 for($i=0; $i<$n; $i++) create_task('var' . $i, __FILE__, [TYPE]);
 
@@ -94,9 +92,10 @@ sleep($_SERVER['argv'][2]??10);
 
 task_wait($exitSig?:SIGINT);
 
-$vars = share_var_get();
+$VAR = ts_var_declare(null);
+$vars = ts_var_get($VAR);
 
-$nn = share_var_destory();
+$nn = ts_var_count($VAR);
 
 $time = microtime(true) - $time;
 
