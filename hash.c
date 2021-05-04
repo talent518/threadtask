@@ -608,7 +608,7 @@ long int ts_table_table_tid_dec_ex(tskey_hash_table_t *tsht, ts_hash_table_t *hh
 	bucket_t *p;
 	register ulong h = hh->h;
 	if(tsht == NULL) {
-		return -1;
+		return 0;
 	}
 
 	hash_table_t *ht = &tsht->ht;
