@@ -246,19 +246,21 @@ static zend_always_inline void ts_hash_table_wr_lock(ts_hash_table_t *ts_ht) {
 #ifndef LOCK_TIMEOUT
 	pthread_mutex_lock(&ts_ht->wlock);
 #else
-	if(ts_table_table_tid_inc(ts_ht) == 1) {
-		// printf("%p   lock\n", ts_ht);
-		struct timespec ts;
-		clock_gettime(CLOCK_REALTIME, &ts);
-		ts.tv_sec += LOCK_TIMEOUT;
-		if(pthread_mutex_timedlock(&ts_ht->wlock, &ts)) {
+	// printf("%p   lock\n", ts_ht);
+	struct timespec ts;
+	clock_gettime(CLOCK_REALTIME, &ts);
+	ts.tv_sec += LOCK_TIMEOUT;
+	if(pthread_mutex_timedlock(&ts_ht->wlock, &ts)) {
+		if(ts_table_table_tid_inc(ts_ht) == 1) {
 			ts_hash_table_deadlock("Deadlock caused by shared variables");
-			pthread_mutex_lock(&ts_ht->wlock);
+		} else {
+			ts_hash_table_deadlock("Repeated locking of shared variables");
 		}
-		ts_ht->tsht = pthread_getspecific(tskey);
+		pthread_mutex_lock(&ts_ht->wlock);
 	} else {
-		ts_hash_table_deadlock("Repeated locking of shared variables");
+		ts_table_table_tid_inc(ts_ht);
 	}
+	ts_ht->tsht = pthread_getspecific(tskey);
 #endif
 }
 
