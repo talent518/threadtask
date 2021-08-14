@@ -196,7 +196,11 @@ int main(int argc, char *argv[]) {
 		char **args = (char**) malloc(sizeof(char*)*(argc+1));
 		memcpy(args, argv, sizeof(char*)*argc);
 		args[argc] = NULL;
-		execv(argv[0], args);
+		char path[PATH_MAX];
+		size_t sz = readlink("/proc/self/exe", path, PATH_MAX);
+		path[sz] = '\0';
+		execv(path, args);
+		perror("execv");
 	}
 
 	dprintf("END THREADTASK\n");
