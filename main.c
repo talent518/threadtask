@@ -117,6 +117,9 @@ static int php_threadtask_startup(sapi_module_struct *sapi_module) {
 int main(int argc, char *argv[]) {
 	zend_file_handle file_handle;
 	int opt;
+	char path[PATH_MAX];
+	size_t sz = readlink("/proc/self/exe", path, PATH_MAX);
+	path[sz] = '\0';
 
 	while((opt = getopt(argc, argv, "Dd:t:r")) != -1) {
 		switch(opt) {
@@ -191,19 +194,16 @@ int main(int argc, char *argv[]) {
 		}
 	} zend_end_try();
 
+	dprintf("END THREADTASK\n");
+
 	if(isReload) {
 		dprintf("RELOAD THREADTASK\n");
 		char **args = (char**) malloc(sizeof(char*)*(argc+1));
 		memcpy(args, argv, sizeof(char*)*argc);
 		args[argc] = NULL;
-		char path[PATH_MAX];
-		size_t sz = readlink("/proc/self/exe", path, PATH_MAX);
-		path[sz] = '\0';
 		execv(path, args);
 		perror("execv");
 	}
-
-	dprintf("END THREADTASK\n");
 
 	php_embed_shutdown();
 
