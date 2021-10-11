@@ -6,6 +6,7 @@ CFLAGS := -O2 -Wall -I$(PHPINC) -I$(PHPINC)/ext -I$(PHPINC)/main -I$(PHPINC)/sap
 LDFLAGS := -L$(PHPDIR)/lib -Wl,-rpath,$(PHPDIR)/lib -l$(PHPSO) -pthread $(LDFLAGS)
 
 all: $(PHPINC)
+	@echo -n
 $(PHPINC):
 	$(error The $@ is not directory. Please usage "make PHPDIR=<dir>" by php dir, for example: /opt/phpts)
 

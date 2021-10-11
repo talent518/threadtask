@@ -3,8 +3,12 @@
 #include <string.h>
 #include <unistd.h>
 #include <limits.h>
+#include <zend.h>
+#include <zend_extensions.h>
 #include <embed/php_embed.h>
 #include <standard/php_var.h>
+#include <standard/info.h>
+
 #include "func.h"
 
 #ifndef ZEND_CONSTANT_SET_FLAGS
@@ -93,6 +97,8 @@ void cli_register_file_handles(void) {
 static void sapi_cli_register_variables(zval *var) {
 	char *filename = SG(request_info).path_translated;
 
+	if(!filename) filename = "";
+
 	//printf("filename = %s\n", filename);
 
 	php_import_environment_variables(var);
@@ -114,14 +120,53 @@ static int php_threadtask_startup(sapi_module_struct *sapi_module) {
 	return SUCCESS;
 }
 
+static int module_name_cmp(Bucket *f, Bucket *s) {
+	return strcasecmp(((zend_module_entry *)Z_PTR(f->val))->name, ((zend_module_entry *)Z_PTR(s->val))->name);
+}
+
+static void print_modules(void) {
+	HashTable sorted_registry;
+	zend_module_entry *module;
+
+	zend_hash_init(&sorted_registry, 50, NULL, NULL, 0);
+	zend_hash_copy(&sorted_registry, &module_registry, NULL);
+	zend_hash_sort(&sorted_registry, module_name_cmp, 0);
+	ZEND_HASH_FOREACH_PTR(&sorted_registry, module) {
+		php_printf("%s\n", module->name);
+	} ZEND_HASH_FOREACH_END();
+	zend_hash_destroy(&sorted_registry);
+}
+
+static void print_extension_info(zend_extension *ext) {
+	php_printf("%s\n", ext->name);
+}
+
+static int extension_name_cmp(const zend_llist_element **f, const zend_llist_element **s) {
+	zend_extension *fe = (zend_extension*)(*f)->data;
+	zend_extension *se = (zend_extension*)(*s)->data;
+	return strcmp(fe->name, se->name);
+}
+
+static void print_extensions(void) {
+	zend_llist sorted_exts;
+
+	zend_llist_copy(&sorted_exts, &zend_extensions);
+	sorted_exts.dtor = NULL;
+	zend_llist_sort(&sorted_exts, extension_name_cmp);
+	zend_llist_apply(&sorted_exts, (llist_apply_func_t) print_extension_info);
+	zend_llist_destroy(&sorted_exts);
+}
+
 int main(int argc, char *argv[]) {
 	zend_file_handle file_handle;
 	int opt;
 	char path[PATH_MAX];
 	size_t sz = readlink("/proc/self/exe", path, PATH_MAX);
 	path[sz] = '\0';
+	char *ini_path_override = NULL;
+	int is_module_list = 0, is_print_info = 0;
 
-	while((opt = getopt(argc, argv, "Dd:t:r")) != -1) {
+	while((opt = getopt(argc, argv, "Dd:t:rc:mivh?")) != -1) {
 		switch(opt) {
 			case 'D':
 				isDebug = 1;
@@ -137,6 +182,19 @@ int main(int argc, char *argv[]) {
 			case 'r':
 				isReload = 1;
 				break;
+			case 'c':
+				ini_path_override = optarg;
+				break;
+			case 'm':
+				is_module_list = 1;
+				break;
+			case 'i':
+				is_print_info = 1;
+				break;
+			case 'v':
+				printf("%s\n", PHP_VERSION);
+				return 0;
+				break;
 			case 'h':
 			case '?':
 			default:
@@ -144,11 +202,14 @@ int main(int argc, char *argv[]) {
 		}
 	}
 	
-	if(optind >= argc) {
+	if(is_module_list == 0 && is_print_info == 0 && optind >= argc) {
 		goto usage;
 	}
 
 	thread_init();
+
+	php_embed_module.executable_location = path;
+	php_embed_module.php_ini_path_override = ini_path_override;
 
 #ifndef SAPI_NAME
 	php_embed_module.name = "cli";
@@ -158,6 +219,7 @@ int main(int argc, char *argv[]) {
 
 	php_embed_module.startup = php_threadtask_startup;
 	php_embed_module.register_server_variables = sapi_cli_register_variables;
+	php_embed_module.phpinfo_as_text = is_print_info;
 
 	old_ub_write_handler = php_embed_module.ub_write;
 	old_flush_handler = php_embed_module.flush;
@@ -171,6 +233,24 @@ int main(int argc, char *argv[]) {
 	}
 
 	cli_register_file_handles();
+
+	if(is_module_list) {
+		php_printf("[PHP Modules]\n");
+		print_modules();
+		php_printf("\n[Zend Modules]\n");
+		print_extensions();
+		php_printf("\n");
+		php_output_end_all();
+		EG(exit_status) = 0;
+		goto out;
+	}
+
+	if(is_print_info) {
+		php_print_info(PHP_INFO_ALL & ~PHP_INFO_CREDITS);
+		php_output_end_all();
+		EG(exit_status) = 0;
+		goto out;
+	}
 
 	thread_running();
 
@@ -205,6 +285,7 @@ int main(int argc, char *argv[]) {
 		perror("execv");
 	}
 
+out:
 	php_embed_shutdown();
 
 	thread_destroy();
@@ -212,11 +293,15 @@ int main(int argc, char *argv[]) {
 	return 0;
 usage:
 	fprintf(stderr, 
-		"usage: %s [[-D] [-d <delay>] [-t <threads>] [-r] --] <phpfile> args...\n"
+		"usage: %s [[-D] [-d <delay>] [-t <threads>] [-r] [ -c <path|file>] [-m | -v | -i] --] <phpfile> args...\n"
 		"    -D              Debug info\n"
 		"    -d <delay>      Delay seconds\n"
 		"    -t <threads>    Max threads\n"
 		"    -r              Auto reload\n"
+		"    -c <path|file>  Look for php.ini file in this directory\n"
+		"    -m              PHP extension list\n"
+		"    -v              PHP Version\n"
+		"    -i              PHP information\n"
 		, argv[0]);
 	return 255;
 }
