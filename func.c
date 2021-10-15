@@ -3520,6 +3520,26 @@ static void php_destroy_ts_var(zend_resource *rsrc) {
 
 #define spl_ce_Exception zend_ce_exception
 
+#if PHP_VERSION_ID >= 80100
+
+#define REGISTER_SPL_SUB_CLASS_EX(class_name, parent_class_name, obj_ctor, funcs) \
+	spl_register_sub_class(&spl_ce_ ## class_name, spl_ce_ ## parent_class_name, # class_name, obj_ctor, funcs);
+
+void spl_register_sub_class(zend_class_entry ** ppce, zend_class_entry * parent_ce, char * class_name, void *obj_ctor, const zend_function_entry * function_list) {
+	zend_class_entry ce;
+
+	INIT_CLASS_ENTRY_EX(ce, class_name, strlen(class_name), function_list);
+	*ppce = zend_register_internal_class_ex(&ce, parent_ce);
+
+	/* entries changed by initialize */
+	if (obj_ctor) {
+		(*ppce)->create_object = obj_ctor;
+	} else {
+		(*ppce)->create_object = parent_ce->create_object;
+	}
+}
+#endif
+
 static PHP_MINIT_FUNCTION(threadtask) {
 	ts_allocate_id(&php_threadtask_globals_id, sizeof(php_threadtask_globals_struct), (ts_allocate_ctor) php_threadtask_globals_ctor, (ts_allocate_dtor) php_threadtask_globals_dtor);
 	le_threadtask_descriptor = zend_register_list_destructors_ex(php_destroy_threadtask, NULL, PHP_THREADTASK_DESCRIPTOR, module_number);
