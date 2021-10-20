@@ -69,6 +69,7 @@ void hash_table_value_free(value_t *value) {
 		break;
 	}
 	value->type = NULL_T;
+	value->l = 0;
 	value->expire = 0;
 }
 
@@ -656,6 +657,90 @@ int hash_table_num_elements(const hash_table_t *ht) {
 
 ulong hash_table_next_free_element(const hash_table_t *ht) {
 	return ht->nNextFreeElement;
+}
+
+int compare_key(const bucket_t *a, const bucket_t *b) {
+	if(a->nKeyLength == 0) {
+		if(b->nKeyLength == 0) {
+			if(a->h > b->h) {
+				return 1;
+			} else if(a->h < b->h) {
+				return -1;
+			} else {
+				return 0;
+			}
+		} else {
+			return 1;
+		}
+	} else if(b->nKeyLength == 0) {
+		return -1;
+	} else {
+		return strcmp(a->arKey, b->arKey);
+	}
+}
+
+#define CMP(a, b) \
+	if(a == b) return 0; \
+	else if(a > b) return 1; \
+	else return -1;
+
+#define CMP_VAL(v) \
+	switch(b->value.type) { \
+		case NULL_T: \
+		case BOOL_T: \
+			CMP(v, b->value.b); \
+			break; \
+		case LONG_T: \
+			CMP(v, b->value.l); \
+			break; \
+		case DOUBLE_T: \
+			CMP(v, b->value.d); \
+			break; \
+		default: \
+			return 0; \
+			break; \
+	}
+
+int compare_value(const bucket_t *a, const bucket_t *b) {
+	switch(a->value.type) {
+		case NULL_T:
+		case BOOL_T:
+			CMP_VAL(a->value.b);
+			break;
+		case LONG_T:
+			CMP_VAL(a->value.l);
+			break;
+		case DOUBLE_T:
+			CMP_VAL(a->value.d);
+			break;
+		default:
+			return 0;
+			break;
+	}
+}
+
+int hash_table_minmax(const hash_table_t *ht, hash_compare_func_t compar, int flag, bucket_t **ret) {
+	const bucket_t *p, *res;
+
+	if (ht->nNumOfElements == 0 ) {
+		*ret=NULL;
+		return FAILURE;
+	}
+
+	res = p = ht->pListHead;
+	while ((p = p->pListNext)) {
+		if (flag) {
+			if (compar(res, p) < 0) { /* max */
+				res = p;
+			}
+		} else {
+			if (compar(res, p) > 0) { /* min */
+				res = p;
+			}
+		}
+	}
+	*ret = (bucket_t*) res;
+	return SUCCESS;
 }
 
 /*
