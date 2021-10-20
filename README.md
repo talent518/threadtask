@@ -73,6 +73,9 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
 * 导出socket文件描述符的管道对（可使用sockets扩展中的函数进行操作）：ts_var_fd(resource $var, bool $is_write = false): socket|bool
   * $var: 由ts_var_declare函数返回的变量
   * $is_write: 是返回
+* 设置共享变量的过期时间：ts_var_expire(resource $var, int $expire)
+  * $var: 由ts_var_declare函数返回的变量
+  * $expire: int 过期时间戳，为0时永不过期
 * 是否存在指定的共享变量：ts_var_exists(resource $var, string|int $key)
   * $var: 由ts_var_declare函数返回的变量
   * $key: 键名，可为字符串和整形
@@ -87,6 +90,8 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
 * 弹出队列（线程安全变量）中最后一个：ts_var_pop(resource $var, string|long &$key = null)
   * $key: 是弹出值对应的键
 * 弹出队列（线程安全变量）中第一个：ts_var_shift(resource $var, string|long &$key = null)
+  * $key: 是弹出值对应的键
+* 获取最小或最大键/值：ts_var_minmax(resource $var, bool $is_max = false, bool $is_key = false, string|long &$key = null)
   * $key: 是弹出值对应的键
 * 获取线程安全变量数据：ts_var_get(resource $var, string|int|null $key = null, bool $is_del = false): mixed
   * $var: 由ts_var_declare函数返回的变量
