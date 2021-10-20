@@ -2490,6 +2490,50 @@ static PHP_FUNCTION(ts_var_shift) {
 	ts_hash_table_wr_unlock(ts_ht);
 }
 
+ZEND_BEGIN_ARG_INFO(arginfo_ts_var_minmax, 1)
+ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 0)
+ZEND_ARG_TYPE_INFO(0, is_max, _IS_BOOL, 0)
+ZEND_ARG_TYPE_INFO(0, is_key, _IS_BOOL, 0)
+ZEND_ARG_INFO(1, key)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(ts_var_minmax) {
+	zval *zv;
+	zval *key = NULL;
+	zend_bool is_max = 0, is_key = 0;
+	
+	ts_hash_table_t *ts_ht;
+	bucket_t *p = NULL;
+
+	ZEND_PARSE_PARAMETERS_START(1, 4)
+		Z_PARAM_RESOURCE(zv)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_BOOL(is_max)
+		Z_PARAM_BOOL(is_key)
+		Z_PARAM_ZVAL_DEREF(key)
+	ZEND_PARSE_PARAMETERS_END();
+	
+	if ((ts_ht = (ts_hash_table_t *) zend_fetch_resource_ex(zv, PHP_TS_VAR_DESCRIPTOR, le_ts_var_descriptor)) == NULL) {
+		RETURN_FALSE;
+	}
+	
+	ts_hash_table_rd_lock(ts_ht);
+	if(hash_table_minmax(&ts_ht->ht, is_key ? compare_key : compare_value, is_max, &p) == SUCCESS) {
+		value_to_zval(&p->value, return_value);
+		if(key) {
+			zval_ptr_dtor(key);
+			if(p->nKeyLength == 0) {
+				ZVAL_LONG(key, p->h);
+			} else {
+				ZVAL_STRINGL(key, p->arKey, p->nKeyLength);
+			}
+		}
+	} else {
+		RETVAL_FALSE;
+	}
+	ts_hash_table_rd_unlock(ts_ht);
+}
+
 ZEND_BEGIN_ARG_INFO(arginfo_ts_var_get, 1)
 ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 0)
 ZEND_ARG_INFO(0, key)
@@ -3344,6 +3388,7 @@ static const zend_function_entry ext_functions[] = {
 	PHP_FE(ts_var_push, arginfo_ts_var_push)
 	PHP_FE(ts_var_pop, arginfo_ts_var_pop)
 	PHP_FE(ts_var_shift, arginfo_ts_var_shift)
+	PHP_FE(ts_var_minmax, arginfo_ts_var_minmax)
 	PHP_FE(ts_var_get, arginfo_ts_var_get)
 	PHP_FE(ts_var_get_or_set, arginfo_ts_var_get_or_set)
 	PHP_FE(ts_var_del, arginfo_ts_var_del)

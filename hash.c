@@ -723,7 +723,7 @@ int hash_table_minmax(const hash_table_t *ht, hash_compare_func_t compar, int fl
 	const bucket_t *p, *res;
 
 	if (ht->nNumOfElements == 0 ) {
-		*ret=NULL;
+		*ret = NULL;
 		return FAILURE;
 	}
 
