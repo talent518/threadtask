@@ -20,11 +20,7 @@ typedef struct string_t {
 typedef enum {
 	NULL_T=0,
 	BOOL_T,
-	CHAR_T,
-	SHORT_T,
-	INT_T,
 	LONG_T,
-	FLOAT_T,
 	DOUBLE_T,
 	STR_T,
 	HT_T,
@@ -37,11 +33,7 @@ typedef struct value_t {
 	int expire;
 	union {
 		zend_bool b;
-		char c;
-		short s;
-		int i;
 		long int l;
-		float f;
 		double d;
 		string_t *str;
 		void *ptr;
@@ -174,6 +166,12 @@ static zend_always_inline void hash_table_bucket_delete(hash_table_t *ht, bucket
 	}
 	free(p);
 }
+
+typedef int (*hash_compare_func_t)(const bucket_t *a, const bucket_t *b);
+
+int compare_key(const bucket_t *a, const bucket_t *b);
+int compare_value(const bucket_t *a, const bucket_t *b);
+int hash_table_minmax(const hash_table_t *ht, hash_compare_func_t compar, int flag, bucket_t **ret);
 
 // ===========================================================================================================
 
