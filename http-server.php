@@ -592,6 +592,7 @@ function onRequest(HttpRequest $request, HttpResponse $response): ?string {
 			unset($response->headers['Content-Type']);
 			return null;
 		case '/chunked':
+			$response->setContentType('text/plain');
 			$n = rand(5, 50);
 			for($i=0;$i<$n;$i++) $response->write("LINE: $i/$n\r\n");
 			return $n % 2 === 0 ? null : "END: $i/$n\r\n";
@@ -721,6 +722,9 @@ function onMediaFile(HttpRequest $request, HttpResponse $response, string $path,
 		'flv' => 'video/x-flv',
 		'woff' => 'font/woff',
 		'woff2' => 'font/woff2',
+		'sh' => 'application/x-shellscript',
+		'md' => 'text/markdown',
+		'o' => 'application/x-object',
 		
 		// images
 		'png' => 'image/png',
