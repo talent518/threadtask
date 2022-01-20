@@ -32,7 +32,7 @@
 #include "func.h"
 #include "hash.h"
 
-static sem_t wsem, rsem;
+static sem_t rsem;
 static pthread_mutex_t nlock, wlock;
 static pthread_cond_t ncond;
 static volatile unsigned int threads = 0;
@@ -157,7 +157,6 @@ void thread_sigmask() {
 }
 
 void thread_init() {
-	sem_init(&wsem, 0, 0);
 	sem_init(&rsem, 0, 0);
 	pthread_mutex_init(&nlock, NULL);
 	pthread_mutex_init(&wlock, NULL);
@@ -236,7 +235,6 @@ void thread_destroy() {
 	pthread_mutex_destroy(&nlock);
 	pthread_mutex_destroy(&wlock);
 	sem_destroy(&rsem);
-	sem_destroy(&wsem);
 }
 
 size_t (*old_ub_write_handler)(const char *str, size_t str_length);
@@ -313,8 +311,6 @@ void *thread_task(task_t *task) {
 	pthread_mutex_unlock(&nlock);
 
 	ts_resource(0);
-
-	sem_wait(&wsem);
 
 #ifdef LOCK_TIMEOUT
 	pthread_setspecific(tskey, NULL);
@@ -575,8 +571,6 @@ static PHP_FUNCTION(create_task) {
 		perror("pthread_create() is error");
 		errno = 0;
 		free_task(task);
-	} else {
-		sem_post(&wsem);
 	}
 	pthread_attr_destroy(&attr);
 
