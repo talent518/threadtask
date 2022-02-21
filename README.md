@@ -22,6 +22,9 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
   * $res: resource 由create_task的第6个引用传递的参数$res而来
 * 等待任务完成函数: task_join($res)
   * $res: resource 由create_task的第6个引用传递的参数$res而来
+* 向指定任务发送$sig信号: task_kill($res, int $sig = SIGINT)
+  * $res: resource 由create_task的第6个引用传递的参数$res而来
+  * $sig: int 线程信号
 * 向所有线程发送$signal信号，并等待所有线程结束: task_wait($signal)
   * $signal: int 进程信号，如: SIGINT,SIGTERM,SIGUSR1,SIGUSR2
 * php运行结束或异常中断自启延时秒数: task_get_delay()

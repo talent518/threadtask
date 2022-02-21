@@ -74,6 +74,12 @@ typedef struct _php_threadtask_globals_struct {
 	timeout_t *timeout;
 } php_threadtask_globals_struct;
 
+typedef struct _wait_t {
+	pthread_t tid;
+	sem_t sem;
+	zend_bool isExit;
+} wait_t;
+
 typedef struct _task_t {
 	pthread_t thread;
 	char *name;
@@ -82,7 +88,7 @@ typedef struct _task_t {
 	char *logfile;
 	char *logmode;
 	FILE *fp;
-	sem_t *sem;
+	wait_t *wait;
 	struct _task_t *prev;
 	struct _task_t *next;
 } task_t;
@@ -299,6 +305,9 @@ void *thread_task(task_t *task) {
 	thread_sigmask();
 
 	task->thread = pthread_self();
+	if(task->wait) {
+		task->wait->tid = task->thread;
+	}
 
 	pthread_mutex_lock(&nlock);
 	if(tail_task) {
@@ -368,7 +377,7 @@ newtask:
 	if(EG(exit_status)) {
 		dprintf("[%s] exit_status = %d\n", task->name, EG(exit_status));
 		php_request_shutdown(NULL);
-		if(!task->sem) {
+		if(!task->wait) {
 			timeout.tv_sec = delay;
 			timeout.tv_nsec = 0;
 			sigprocmask(SIG_BLOCK, &waitset, NULL);
@@ -378,13 +387,18 @@ newtask:
 	} else {
 		php_request_shutdown(NULL);
 	}
-	
-	if(task->sem) {
-		sem_post(task->sem);
-	}
 
 	SG(request_info).argc = 0;
 	SG(request_info).argv = NULL;
+	
+	if(task->wait) {
+		sem_post(&task->wait->sem);
+		if(task->wait->isExit) {
+			goto err;
+		} else {
+			task->wait->isExit = 1;
+		}
+	}
 	
 	if(!isRun) goto err;
 	
@@ -517,13 +531,14 @@ static PHP_FUNCTION(create_task) {
 	}
 	
 	if(res) {
-		task->sem = (sem_t*) malloc(sizeof(sem_t));
-		sem_init(task->sem, 0, 0);
+		task->wait = (wait_t*) malloc(sizeof(wait_t));
+		memset(task->wait, 0, sizeof(wait_t));
+		sem_init(&task->wait->sem, 0, 0);
 		
 		zval_ptr_dtor(res);
-		ZVAL_RES(res, zend_register_resource(task->sem, le_threadtask_descriptor));
+		ZVAL_RES(res, zend_register_resource(task->wait, le_threadtask_descriptor));
 		
-		dprintf("RESOURCE %p register\n", task->sem);
+		dprintf("RESOURCE %p register\n", task->wait);
 	}
 
 	ret = 0;
@@ -571,6 +586,8 @@ static PHP_FUNCTION(create_task) {
 		perror("pthread_create() is error");
 		errno = 0;
 		free_task(task);
+	} else if(task->wait) {
+		task->wait->tid = thread;
 	}
 	pthread_attr_destroy(&attr);
 
@@ -583,15 +600,15 @@ ZEND_END_ARG_INFO()
 
 static PHP_FUNCTION(task_is_run) {
 	zval *res;
-	sem_t *ptr;
+	wait_t *ptr;
 	int v = 0;
 	
 	ZEND_PARSE_PARAMETERS_START(1, 1)
 		Z_PARAM_RESOURCE(res)
 	ZEND_PARSE_PARAMETERS_END();
 	
-	ptr = (sem_t*) zend_fetch_resource_ex(res, PHP_THREADTASK_DESCRIPTOR, le_threadtask_descriptor);
-	if(ptr && !sem_getvalue(ptr, &v) && !v) {
+	ptr = (wait_t*) zend_fetch_resource_ex(res, PHP_THREADTASK_DESCRIPTOR, le_threadtask_descriptor);
+	if(ptr && !sem_getvalue(&ptr->sem, &v) && !v) {
 		RETURN_TRUE;
 	} else {
 		RETURN_FALSE;
@@ -604,16 +621,54 @@ ZEND_END_ARG_INFO()
 
 static PHP_FUNCTION(task_join) {
 	zval *res;
-	sem_t *ptr;
+	wait_t *ptr;
 	
 	ZEND_PARSE_PARAMETERS_START(1, 1)
 		Z_PARAM_RESOURCE(res)
 	ZEND_PARSE_PARAMETERS_END();
 	
-	ptr = (sem_t*) zend_fetch_resource_ex(res, PHP_THREADTASK_DESCRIPTOR, le_threadtask_descriptor);
-	if(ptr) sem_wait(ptr);
+	ptr = (wait_t*) zend_fetch_resource_ex(res, PHP_THREADTASK_DESCRIPTOR, le_threadtask_descriptor);
+	if(ptr) sem_wait(&ptr->sem);
 	
 	RETURN_BOOL(ptr);
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_task_kill, 1)
+ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 0)
+ZEND_ARG_TYPE_INFO(0, sig, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(task_kill) {
+	zval *res;
+	zend_long sig = SIGINT;
+	wait_t *ptr;
+	int ret;
+	
+	ZEND_PARSE_PARAMETERS_START(1, 2)
+		Z_PARAM_RESOURCE(res)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_LONG(sig)
+	ZEND_PARSE_PARAMETERS_END();
+	
+	ptr = (wait_t*) zend_fetch_resource_ex(res, PHP_THREADTASK_DESCRIPTOR, le_threadtask_descriptor);
+	if(ptr) {
+		if(!ptr->isExit) {
+			ptr->isExit = 1;
+
+			dprintf("pthread_kill %d\n", pthread_tid_ex(ptr->tid));
+			ret = pthread_kill(ptr->tid, (int) sig);
+			if(ret) {
+				errno = ret;
+				perror("pthread_create() is error");
+				errno = 0;
+				ptr->isExit = 0;
+			}
+		}
+
+		RETURN_BOOL(ptr->isExit);
+	} else {
+		RETURN_FALSE;
+	}
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_task_wait, 0)
@@ -3337,6 +3392,7 @@ register_constant:
 
 static const zend_function_entry ext_functions[] = {
 	ZEND_FE(create_task, arginfo_create_task)
+	ZEND_FE(task_kill, arginfo_task_kill)
 	ZEND_FE(task_join, arginfo_task_join)
 	ZEND_FE(task_is_run, arginfo_task_is_run)
 	ZEND_FE(task_wait, arginfo_task_wait)
@@ -3444,9 +3500,9 @@ static void php_threadtask_globals_dtor(php_threadtask_globals_struct *php_threa
 }
 
 static void php_destroy_threadtask(zend_resource *rsrc) {
-	sem_t *ptr = (sem_t *) rsrc->ptr;
+	wait_t *ptr = (wait_t *) rsrc->ptr;
 	
-	sem_destroy(ptr);
+	sem_destroy(&ptr->sem);
 	
 	free(ptr);
 	
