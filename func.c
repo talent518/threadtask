@@ -933,7 +933,6 @@ ZEND_ARG_VARIADIC_INFO(0, parameters)
 ZEND_END_ARG_INFO()
 
 static PHP_FUNCTION(go) {
-	zval retval;
 	zend_fcall_info fci; 
 	zend_fcall_info_cache fci_cache;
 
@@ -946,17 +945,14 @@ static PHP_FUNCTION(go) {
 	#endif
 	ZEND_PARSE_PARAMETERS_END();
 
-	fci.retval = &retval;
+	fci.retval = return_value;
 	
 	zend_bool b = SINFO(is_throw_exit);
 	SINFO(is_throw_exit) = 1;
 
 	zend_try {
-		if (zend_call_function(&fci, &fci_cache) == SUCCESS && Z_TYPE(retval) != IS_UNDEF) {
-			if (Z_ISREF(retval)) {
-				zend_unwrap_reference(&retval);
-			}
-			ZVAL_COPY_VALUE(return_value, &retval);
+		if(zend_call_function(&fci, &fci_cache) == FAILURE) {
+			RETVAL_FALSE;
 		}
 	} zend_catch {
 		EG(exit_status) = 0;
@@ -2658,7 +2654,6 @@ static PHP_FUNCTION(ts_var_get_or_set) {
 	zend_string *key = NULL;
 	zend_long index = 0;
 
-	zval retval;
 	zend_fcall_info fci;
 	zend_fcall_info_cache fci_cache;
 
@@ -2684,7 +2679,7 @@ static PHP_FUNCTION(ts_var_get_or_set) {
 		RETURN_FALSE;
 	}
 	
-	fci.retval = &retval;
+	fci.retval = return_value;
 
 	ts_hash_table_rd_lock(ts_ht);
 	if(key) {
@@ -2699,14 +2694,10 @@ static PHP_FUNCTION(ts_var_get_or_set) {
 				value_to_zval(&v, return_value);
 			} else {
 				zend_try {
-					if (zend_call_function(&fci, &fci_cache) == SUCCESS && Z_TYPE(retval) != IS_UNDEF) {
-						if (Z_ISREF(retval)) {
-							zend_unwrap_reference(&retval);
-						}
-						zval_to_value(&retval, &v);
+					if (zend_call_function(&fci, &fci_cache) == SUCCESS) {
+						zval_to_value(return_value, &v);
 						v.expire = expire;
 						hash_table_quick_update(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v, NULL);
-						ZVAL_COPY_VALUE(return_value, &retval);
 					}
 				} zend_catch {
 					EG(exit_status) = 0;
@@ -2725,14 +2716,10 @@ static PHP_FUNCTION(ts_var_get_or_set) {
 				value_to_zval(&v, return_value);
 			} else {
 				zend_try {
-					if (zend_call_function(&fci, &fci_cache) == SUCCESS && Z_TYPE(retval) != IS_UNDEF) {
-						if (Z_ISREF(retval)) {
-							zend_unwrap_reference(&retval);
-						}
-						zval_to_value(&retval, &v);
+					if (zend_call_function(&fci, &fci_cache) == SUCCESS) {
+						zval_to_value(return_value, &v);
 						v.expire = expire;
 						hash_table_index_update(&ts_ht->ht, index, &v, NULL);
-						ZVAL_COPY_VALUE(return_value, &retval);
 					}
 				} zend_catch {
 					EG(exit_status) = 0;
