@@ -1,7 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#define __USE_GNU
 #include <pthread.h>
+#undef __USE_GNU
 #include <unistd.h>
 #include <semaphore.h>
 #include <sys/time.h>
@@ -868,6 +870,15 @@ static PHP_FUNCTION(pthread_sigmask) {
 	}
 
 	RETURN_TRUE;
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_pthread_yield, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(pthread_yield) {
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	RETURN_BOOL(pthread_yield() == 0);
 }
 
 // ===========================================================================================================
@@ -3393,6 +3404,7 @@ static const zend_function_entry ext_functions[] = {
 	ZEND_FE(task_get_run, arginfo_task_get_run)
 	ZEND_FE(task_set_run, arginfo_task_set_run)
 	ZEND_FE(pthread_sigmask, arginfo_pthread_sigmask)
+	ZEND_FE(pthread_yield, arginfo_pthread_yield)
 
 	ZEND_FE(go, arginfo_go)
 	ZEND_FE(call_and_free_shutdown, arginfo_call_and_free_shutdown)
