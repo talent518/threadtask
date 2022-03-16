@@ -1201,7 +1201,7 @@ class HttpRequest {
 		}
 		
 		foreach($this->files as $file) {
-			@unlink($file['path']);
+			empty($file['path']) or unlink($file['path']);
 		}
 		
 		$this->unregisterVars();
@@ -1234,9 +1234,12 @@ class HttpRequest {
 		// echo $buf;
 
 		if($this->buf !== null) {
-			$n += strlen($this->buf);
+			$n2 = strlen($this->buf);
+			$n += $n2;
 			$buf = $this->buf . $buf;
 			$this->buf = null;
+		} else {
+			$n2 = 0;
 		}
 
 		$i = 0;
@@ -1339,7 +1342,7 @@ class HttpRequest {
 					break;
 				case self::MODE_BODY:
 					// echo 'BODYOFF: ', $n-$i, "\n";
-					$this->bodyoff += $n - $i - strlen($this->buf);
+					$this->bodyoff += $n - $i - $n2;
 					if($this->bodymode === self::BODY_MODE_FORM_DATA) {
 						while($i < $n) {
 							switch($this->formmode) {
@@ -1383,7 +1386,7 @@ class HttpRequest {
 												$this->fp = null;
 												$path = null;
 											}
-											$this->files[$this->formargs['name']] = ['name'=>$this->formargs['filename'], 'type'=>$this->formheaders['Content-Type'], 'path'=>$path];
+											$this->files[$this->formargs['name']] = ['name'=>$this->formargs['filename'], 'type'=>$this->formheaders['Content-Type'], 'path'=>$path, 'size'=>0];
 										}
 									} else {
 										@list($name, $value) = preg_split('/:\s*/', substr($buf, $i, $pos-$i), 2);
@@ -1397,6 +1400,7 @@ class HttpRequest {
 										if($this->fp) {
 											$j = $n - $i - strlen($this->boundaryPos) + 1;
 											if($j > 0) {
+												$this->files[$this->formargs['name']]['size'] += $j;
 												fwrite($this->fp, substr($buf, $i, $j), $j);
 												$this->buf = substr($buf, $i + $j);
 											} else {
@@ -1408,6 +1412,7 @@ class HttpRequest {
 										$i = $n;
 									} else {
 										$value = substr($buf, $i, $pos - $i);
+										$this->files[$this->formargs['name']]['size'] += $pos - $i;
 										if($this->fp) {
 											fwrite($this->fp, $value, strlen($value));
 											fclose($this->fp);
