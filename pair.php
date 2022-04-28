@@ -6,14 +6,14 @@ function signal($sig) {
 
 	$exitSig = $sig;
 	$running = false;
-	defined('THREAD_TASK_NAME') or task_set_run(false);
+	is_main_task() and task_set_run(false);
 }
 
 pcntl_async_signals(true);
 pcntl_signal(SIGTERM, 'signal', false);
 pcntl_signal(SIGINT, 'signal', false);
 
-if(defined('THREAD_TASK_NAME')) {
+if(!is_main_task()) {
 	// echo THREAD_TASK_NAME . PHP_EOL;
 	
 	$fd = socket_import_fd((int) $_SERVER['argv'][1]);

@@ -19,7 +19,7 @@ $var = ts_var_declare(null);
 
 $memsize = memory_get_usage();
 
-if(defined('THREAD_TASK_NAME')) {
+if(!is_main_task()) {
 	while($running) {
 		ts_var_shift($var, $key);
 		echo "$key\n";

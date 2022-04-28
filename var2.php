@@ -7,14 +7,14 @@ function signal($sig) {
 	if($isThread) echo "sig = $sig\n"; else echo "init sig = $sig\n";
 	$running = false;
 	$exitSig = $sig;
-	defined('THREAD_TASK_NAME') or task_set_run(false);
+	is_main_task() and task_set_run(false);
 }
 
 pcntl_async_signals(true);
 pcntl_signal(SIGTERM, 'signal', false);
 pcntl_signal(SIGINT, 'signal', false);
 
-if(defined('THREAD_TASK_NAME')) {
+if(!is_main_task()) {
 	$var = ts_var_declare(THREAD_TASK_NAME);
 	$I = 0;
 	switch((int) $_SERVER['argv'][1]) {

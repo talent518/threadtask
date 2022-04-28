@@ -7,12 +7,7 @@ function signal($sig) {
 	$exitSig = $sig;
 	$running = false;
 	
-	if(defined('THREAD_TASK_NAME')) {
-		share_var_set(THREAD_TASK_NAME, debug_backtrace());
-	} else {
-		//task_set_run(false);
-		share_var_set('main', debug_backtrace());
-	}
+	share_var_set(THREAD_TASK_NAME, debug_backtrace());
 }
 
 pcntl_async_signals(true);
@@ -21,7 +16,7 @@ pcntl_signal(SIGINT, 'signal', false);
 pcntl_signal(SIGUSR1, 'signal', false);
 pcntl_signal(SIGUSR2, 'signal', false);
 
-if(defined('THREAD_TASK_NAME')) {
+if(!is_main_task()) {
 	// echo THREAD_TASK_NAME . PHP_EOL;
 
 	$aptres = ts_var_declare('aptres', null, true);
@@ -138,7 +133,7 @@ function strerror($msg, $isExit = true) {
 	ob_implicit_flush(false);
 	debug_print_backtrace();
 	$trace = ob_get_clean();
-	printf("[%s] %s(%d): %s\n%s", defined('THREAD_TASK_NAME') ? THREAD_TASK_NAME : 'main', $msg, $err, socket_strerror($err), $trace);
+	printf("[%s] %s(%d): %s\n%s", THREAD_TASK_NAME, $msg, $err, socket_strerror($err), $trace);
 
 	if($isExit) exit; else return true;
 }

@@ -6,7 +6,7 @@ function signal($sig) {
 
 	$exitSig = $sig;
 	$running = false;
-	defined('THREAD_TASK_NAME') or task_set_run(false);
+	is_main_task() and task_set_run(false);
 }
 
 pcntl_async_signals(true);
@@ -15,7 +15,7 @@ pcntl_signal(SIGINT, 'signal', false);
 pcntl_signal(SIGUSR1, 'signal', false);
 pcntl_signal(SIGUSR2, 'signal', false);
 
-if(defined('THREAD_TASK_NAME')) {
+if(!is_main_task()) {
 	$host = $_SERVER['argv'][1];
 	$port = (int) $_SERVER['argv'][2];
 	while($running) {
@@ -69,7 +69,7 @@ if(defined('THREAD_TASK_NAME')) {
 	
 function strerror($msg, $isExit = true) {
 	$err = socket_last_error();
-	printf("[%s] %s(%d): %s\n", defined('THREAD_TASK_NAME') ? THREAD_TASK_NAME : 'main', $msg, $err, socket_strerror($err));
+	printf("[%s] %s(%d): %s\n", THREAD_TASK_NAME, $msg, $err, socket_strerror($err));
 
 	if($isExit) exit; else return true;
 }

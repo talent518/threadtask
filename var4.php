@@ -22,7 +22,7 @@ $var = ts_var_declare('var');
 $var2 = ts_var_declare('var2');
 $time = time();
 
-if(defined('THREAD_TASK_NAME')) {
+if(!is_main_task()) {
 	while($running) {
 		switch(rand(0, 19)) {
 			case 0:

@@ -232,6 +232,8 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
+	zend_register_string_constant(ZEND_STRL("THREAD_TASK_NAME"), "main", CONST_CS, PHP_USER_CONSTANT);
+
 	cli_register_file_handles();
 
 	if(is_module_list) {

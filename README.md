@@ -49,6 +49,8 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
   * $set: 信号列表。
   * $oldset: 是一个输出参数，用来返回之前的阻塞信号列表数组。
 * 让出当前线程剩余的CPU时间片: pthread_yield(): bool
+* 是否是主线程(别名: is_main_thread)：is_main_task(): bool
+
 #### 2. 共享变量相关
 * 初始化共享变量(只能在主线程中使用): share_var_init($size = 128)
   * $size: int 初始化变量数
@@ -151,7 +153,7 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
 * 重新定义常量: redefine(string $name, mixed $value, bool $case_insensitive)
 
 ### 常量
-* THREAD_TASK_NAME: string 任务名
+* THREAD_TASK_NAME: string 任务名, 主线程为main
 
 ### 使用示例
 * 简单任务控制: ./threadtask init.php

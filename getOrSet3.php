@@ -16,7 +16,7 @@ register_shutdown_function(function() {
 	printf("EXIT: %s\n", THREAD_TASK_NAME);
 });
 
-if(defined('THREAD_TASK_NAME')) {
+if(!is_main_task()) {
 	$i = 0;
 	if(THREAD_TASK_NAME == 'task0') {
 		while($running) {
@@ -46,8 +46,6 @@ if(defined('THREAD_TASK_NAME')) {
 		}
 	}
 } else {
-	define('THREAD_TASK_NAME', 'main');
-	
 	create_task('task0', __FILE__, [], null, null, $waits[0]);
 	create_task('task1', __FILE__, [], null, null, $waits[1]);
 	

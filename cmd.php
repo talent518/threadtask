@@ -4,7 +4,7 @@ $running = true;
 
 function signal($sig) {
 	global $running;
-	if(defined('THREAD_TASK_NAME')) echo THREAD_TASK_NAME . ' ';
+	echo THREAD_TASK_NAME . ' ';
 	echo 'cmd sig = ', $sig, PHP_EOL;
 	$running = false;
 }
@@ -17,7 +17,7 @@ var_dump($_SERVER['argv']);
 
 $t = microtime(true);
 $running and usleep(mt_rand(10000, 1000000));
-if(defined('THREAD_TASK_NAME')) echo THREAD_TASK_NAME . ' ';
+echo THREAD_TASK_NAME . ' ';
 echo 'runtime ', (int)((microtime(true)-$t)*1000000) / 1000, 'ms', PHP_EOL;
 
 if(isset($_SERVER['argv'][1]) && $_SERVER['argv'][1] === 'return') {

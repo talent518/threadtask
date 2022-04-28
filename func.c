@@ -477,7 +477,7 @@ err:
 	pthread_exit(NULL);
 }
 
-ZEND_BEGIN_ARG_INFO(arginfo_create_task, 0)
+ZEND_BEGIN_ARG_INFO(arginfo_create_task, 3)
 	ZEND_ARG_INFO(0, taskname)
 	ZEND_ARG_INFO(0, filename)
 	ZEND_ARG_ARRAY_INFO(0, params, 0)
@@ -816,6 +816,15 @@ static PHP_FUNCTION(task_get_delay) {
 	ZEND_PARSE_PARAMETERS_NONE();
 
 	RETVAL_LONG(delay);
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_is_main_task, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(is_main_task) {
+	ZEND_PARSE_PARAMETERS_NONE();
+
+	RETURN_BOOL(mthread == pthread_self());
 }
 
 // -----------------------------------------------------------------------------------------------------------
@@ -3389,6 +3398,8 @@ register_constant:
 // ===========================================================================================================
 
 static const zend_function_entry ext_functions[] = {
+	ZEND_FE(is_main_task, arginfo_is_main_task)
+	PHP_FALIAS(is_main_thread, is_main_task, arginfo_is_main_task)
 	ZEND_FE(create_task, arginfo_create_task)
 	ZEND_FE(task_kill, arginfo_task_kill)
 	ZEND_FE(task_join, arginfo_task_join)
@@ -3403,6 +3414,7 @@ static const zend_function_entry ext_functions[] = {
 	ZEND_FE(task_set_debug, arginfo_task_set_debug)
 	ZEND_FE(task_get_run, arginfo_task_get_run)
 	ZEND_FE(task_set_run, arginfo_task_set_run)
+
 	ZEND_FE(pthread_sigmask, arginfo_pthread_sigmask)
 	ZEND_FE(pthread_yield, arginfo_pthread_yield)
 

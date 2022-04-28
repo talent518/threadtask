@@ -7,16 +7,16 @@ function signal(int $sig) {
 	$exitSig = $sig;
 	$running = false;
 	
-	if(defined('THREAD_TASK_NAME')) {
-		// share_var_set(THREAD_TASK_NAME, debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS));
+	// share_var_set(THREAD_TASK_NAME, debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS));
+	
+	if(is_main_task()) {
+		task_set_run(false);
+	} else {
 		/*ob_start();
 		ob_implicit_flush(false);
 		echo THREAD_TASK_NAME, PHP_EOL;
 		debug_print_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
 		echo ob_get_clean();*/
-	} else {
-		task_set_run(false);
-		// share_var_set('main', debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS));
 	}
 }
 function signal_timeout(int $sig) {
@@ -39,7 +39,7 @@ isset($onRequest) or ($onRequest = 'onRequest');
 
 $statres = ts_var_declare('statres');
 
-if(defined('THREAD_TASK_NAME')) {
+if(!is_main_task()) {
 	// echo THREAD_TASK_NAME . PHP_EOL;
 
 	$aptres = ts_var_declare('aptres', null, true);
@@ -456,7 +456,7 @@ function strerror(string $msg, bool $isExit = true) {
 	ob_implicit_flush(false);
 	debug_print_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
 	$trace = ob_get_clean();
-	printf("[%s] %s(%d): %s\n%s", defined('THREAD_TASK_NAME') ? THREAD_TASK_NAME : 'main', $msg, $err, socket_strerror($err), $trace);
+	printf("[%s] %s(%d): %s\n%s", THREAD_TASK_NAME, $msg, $err, socket_strerror($err), $trace);
 
 	if($isExit) exit; else return true;
 }
