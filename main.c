@@ -3,6 +3,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <limits.h>
+#include <getopt.h>
+
 #include <zend.h>
 #include <zend_extensions.h>
 #include <embed/php_embed.h>
@@ -157,16 +159,31 @@ static void print_extensions(void) {
 	zend_llist_destroy(&sorted_exts);
 }
 
+static const char *options = "Dd:t:rc:mivh";
+static struct option OPTIONS[] = {
+    {"debug",          0, 0, 'D' },
+    {"delay",          1, 0, 'd' },
+    {"threads",        1, 0, 't' },
+    {"reload",         0, 0, 'r' },
+    {"config",         1, 0, 'c' },
+    {"modules",        0, 0, 'm' },
+    {"info",           0, 0, 'i' },
+    {"version",        0, 0, 'v' },
+    {"help",           0, 0, 'h' },
+
+    {NULL,              0, 0, 0 }
+};
+
 int main(int argc, char *argv[]) {
 	zend_file_handle file_handle;
-	int opt;
+	int opt, ind = 0;
 	char path[PATH_MAX];
 	size_t sz = readlink("/proc/self/exe", path, PATH_MAX);
 	path[sz] = '\0';
 	char *ini_path_override = NULL;
 	int is_module_list = 0, is_print_info = 0;
 
-	while((opt = getopt(argc, argv, "Dd:t:rc:mivh?")) != -1) {
+	while((opt = getopt_long(argc, argv, options, OPTIONS, &ind)) != -1) {
 		switch(opt) {
 			case 'D':
 				isDebug = 1;
@@ -295,15 +312,16 @@ out:
 	return 0;
 usage:
 	fprintf(stderr, 
-		"usage: %s [[-D] [-d <delay>] [-t <threads>] [-r] [ -c <path|file>] [-m | -v | -i] --] <phpfile> args...\n"
-		"    -D              Debug info\n"
-		"    -d <delay>      Delay seconds\n"
-		"    -t <threads>    Max threads\n"
-		"    -r              Auto reload\n"
-		"    -c <path|file>  Look for php.ini file in this directory\n"
-		"    -m              PHP extension list\n"
-		"    -v              PHP Version\n"
-		"    -i              PHP information\n"
+		"usage: %s [options] <phpfile> args...\n"
+		"    -h,--help               This help text\n"
+		"    -D,--debug              Debug info\n"
+		"    -d,--delay <delay>      Delay seconds\n"
+		"    -t,--threads <threads>  Max threads\n"
+		"    -r,--reload             Auto reload\n"
+		"    -c,--config <path|file> Look for php.ini file in this directory\n"
+		"    -m,--modules            PHP extension list\n"
+		"    -v,--version            PHP Version\n"
+		"    -i,--info               PHP information\n"
 		, argv[0]);
 	return 255;
 }
