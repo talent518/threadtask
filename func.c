@@ -30,6 +30,8 @@
 #include <sockets/php_sockets.h>
 #include <zend_exceptions.h>
 #include <spl/spl_functions.h>
+#include <zend_builtin_functions.h>
+#include <zend_signal.h>
 
 #include "func.h"
 #include "hash.h"
@@ -829,6 +831,58 @@ static PHP_FUNCTION(is_main_task) {
 
 // -----------------------------------------------------------------------------------------------------------
 
+#ifdef HAVE_STRUCT_SIGINFO_T
+static void segv_signal_handler(int signo, siginfo_t *siginfo, void *context) {
+#else
+static void segv_signal_handler(int signo) {
+#endif
+	zval backtrace;
+	char name[64];
+	
+	prctl(PR_GET_NAME, (unsigned long) name);
+
+	zend_fetch_debug_backtrace(&backtrace, 1, /* options */ 0, /* limit */ 0);
+	ZEND_ASSERT(Z_TYPE(backtrace) == IS_ARRAY);
+
+	zend_string *str = zend_trace_to_string(Z_ARRVAL(backtrace), /* include_main */ false);
+	fprintf(stderr, "[SIGSEGV][%s] %*s", name, (int) ZSTR_LEN(str), ZSTR_VAL(str));
+	zend_string_release(str);
+
+	zval_ptr_dtor(&backtrace);
+	
+	zend_bailout();
+}
+
+static void segv_signal(int restart, int mask_all) {
+	struct sigaction act,oact;
+
+#ifdef HAVE_STRUCT_SIGINFO_T
+	act.sa_sigaction = segv_signal_handler;
+#else
+	act.sa_handler = segv_signal_handler;
+#endif
+	if (mask_all) {
+		sigfillset(&act.sa_mask);
+	} else {
+		sigemptyset(&act.sa_mask);
+	}
+	act.sa_flags = 0;
+#ifdef HAVE_STRUCT_SIGINFO_T
+	act.sa_flags |= SA_SIGINFO;
+#endif
+	if (!restart) {
+#ifdef SA_INTERRUPT
+		act.sa_flags |= SA_INTERRUPT; /* SunOS */
+#endif
+	} else {
+#ifdef SA_RESTART
+		act.sa_flags |= SA_RESTART; /* SVR4, 4.3+BSD */
+#endif
+	}
+
+	zend_sigaction(SIGSEGV, &act, &oact);
+}
+
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_pthread_sigmask, 0, 2, _IS_BOOL, 0)
 	ZEND_ARG_TYPE_INFO(0, mode, IS_LONG, 0)
 	ZEND_ARG_TYPE_INFO(0, signals, IS_ARRAY, 0)
@@ -877,6 +931,8 @@ static PHP_FUNCTION(pthread_sigmask) {
 			add_next_index_long(user_oldset, signo);
 		}
 	}
+
+	segv_signal(1, 1);
 
 	RETURN_TRUE;
 }
