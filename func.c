@@ -2923,6 +2923,70 @@ static PHP_FUNCTION(ts_var_reindex) {
 	RETURN_TRUE;
 }
 
+static int hash_table_keys_to_zval(bucket_t *p, zval *a) {
+	if(p->nKeyLength == 0) {
+		add_next_index_long(a, p->h);
+	} else {
+		add_next_index_stringl(a, p->arKey, p->nKeyLength);
+	}
+	
+	return HASH_TABLE_APPLY_KEEP;
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_ts_var_keys, 1)
+ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(ts_var_keys) {
+	zval *zv;
+	ts_hash_table_t *ts_ht;
+
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_RESOURCE(zv)
+	ZEND_PARSE_PARAMETERS_END();
+	
+	if ((ts_ht = (ts_hash_table_t *) zend_fetch_resource_ex(zv, PHP_TS_VAR_DESCRIPTOR, le_ts_var_descriptor)) == NULL) {
+		RETURN_FALSE;
+	}
+
+	ts_hash_table_rd_lock(ts_ht);
+	array_init_size(return_value, hash_table_num_elements(&ts_ht->ht));
+	hash_table_apply_with_argument(&ts_ht->ht, (hash_apply_func_arg_t) hash_table_keys_to_zval, return_value);
+	ts_hash_table_rd_unlock(ts_ht);
+}
+
+static int hash_table_expires_to_zval(bucket_t *p, zval *a) {
+	if(p->nKeyLength == 0) {
+		add_index_long(a, p->h, p->value.expire);
+	} else {
+		add_assoc_long_ex(a, p->arKey, p->nKeyLength, p->value.expire);
+	}
+	
+	return HASH_TABLE_APPLY_KEEP;
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_ts_var_expires, 1)
+ZEND_ARG_TYPE_INFO(0, res, IS_RESOURCE, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(ts_var_expires) {
+	zval *zv;
+	ts_hash_table_t *ts_ht;
+
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_RESOURCE(zv)
+	ZEND_PARSE_PARAMETERS_END();
+	
+	if ((ts_ht = (ts_hash_table_t *) zend_fetch_resource_ex(zv, PHP_TS_VAR_DESCRIPTOR, le_ts_var_descriptor)) == NULL) {
+		RETURN_FALSE;
+	}
+
+	ts_hash_table_rd_lock(ts_ht);
+	array_init_size(return_value, hash_table_num_elements(&ts_ht->ht));
+	hash_table_apply_with_argument(&ts_ht->ht, (hash_apply_func_arg_t) hash_table_expires_to_zval, return_value);
+	ts_hash_table_rd_unlock(ts_ht);
+}
+
 // ===========================================================================================================
 
 #if PHP_VERSION_ID < 80000
@@ -3457,6 +3521,8 @@ static const zend_function_entry ext_functions[] = {
 	PHP_FE(ts_var_count, arginfo_ts_var_count)
 	PHP_FE(ts_var_clean, arginfo_ts_var_clean)
 	PHP_FE(ts_var_reindex, arginfo_ts_var_reindex)
+	PHP_FE(ts_var_keys, arginfo_ts_var_keys)
+	PHP_FE(ts_var_expires, arginfo_ts_var_expires)
 	
 	PHP_FE(socket_export_fd, arginfo_socket_export_fd)
 	PHP_FE(socket_import_fd, arginfo_socket_import_fd)

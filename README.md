@@ -123,6 +123,8 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
 * 重建线程安全变量索引: ts_var_reindex(resource $var, bool $only_integer_keys = false): bool
   * $var: 由ts_var_declare函数返回的变量
   * $only_integer_keys: 是否紧整数索引
+* 获取线程安全变量所有键名: ts_var_keys(resource $var): bool|array
+* 获取线程安全变量所有键过期时间: ts_var_expires(resource $var): bool|array
 
 #### 4. sockets附加函数
 * 导出socket文件描述符为整型: socket_export_fd(resource $socket, bool $is_close = false)
