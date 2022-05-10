@@ -1,5 +1,7 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
 #include <limits.h>
@@ -7,11 +9,16 @@
 
 #include <zend.h>
 #include <zend_extensions.h>
+#include <zend_builtin_functions.h>
+#include <zend_exceptions.h>
 #include <embed/php_embed.h>
 #include <standard/php_var.h>
 #include <standard/info.h>
 
 #include "func.h"
+#include "hash.h"
+
+static volatile int is_perf = 0;
 
 #ifndef ZEND_CONSTANT_SET_FLAGS
 	#define ZEND_CONSTANT_SET_FLAGS(z,c,n) do { \
@@ -115,6 +122,13 @@ static void sapi_cli_register_variables(zval *var) {
 }
 
 static int php_threadtask_startup(sapi_module_struct *sapi_module) {
+	if(is_perf) {
+		char *ret = NULL;
+		if(asprintf(&ret, "%sopcache.jit=0\n", sapi_module->ini_entries) > 0) {
+			free(sapi_module->ini_entries);
+			sapi_module->ini_entries = ret;
+		}
+	}
 	if (php_module_startup(sapi_module, &threadtask_module_entry, 1) == FAILURE) {
 		return FAILURE;
 	}
@@ -132,7 +146,11 @@ static void print_modules(void) {
 
 	zend_hash_init(&sorted_registry, 50, NULL, NULL, 0);
 	zend_hash_copy(&sorted_registry, &module_registry, NULL);
+#if PHP_VERSION_ID >= 80000
 	zend_hash_sort(&sorted_registry, module_name_cmp, 0);
+#else
+	zend_hash_sort(&sorted_registry, (compare_func_t) module_name_cmp, 0);
+#endif
 	ZEND_HASH_FOREACH_PTR(&sorted_registry, module) {
 		php_printf("%s\n", module->name);
 	} ZEND_HASH_FOREACH_END();
@@ -159,8 +177,200 @@ static void print_extensions(void) {
 	zend_llist_destroy(&sorted_exts);
 }
 
-static const char *options = "Dd:t:rc:mivh";
+// ======================= begin perf =======================
+
+static void (*_zend_execute_ex) (zend_execute_data *execute_data);
+
+static char *perf_basename(char *file) {
+	char *pos = strrchr(file, '/');
+
+	if(pos) {
+		return pos + 1;
+	} else {
+		return file;
+	}
+}
+
+static char *perf_get_function_name(zend_execute_data *call) {
+	zend_function *func;
+	zend_string *name;
+	char *ret = NULL;
+
+	func = call->func;
+
+	if (func && func->common.function_name) {
+		if (Z_TYPE(call->This) == IS_OBJECT) {
+			zend_object *object = Z_OBJ(call->This);
+			/* $this may be passed into regular internal functions */
+			if (func->common.scope) {
+				name = func->common.scope->name;
+		#if PHP_VERSION_ID >= 70300
+			} else if (object->handlers->get_class_name == zend_std_get_class_name) {
+		#else
+			} else if (object->handlers->get_class_name == std_object_handlers.get_class_name) {
+		#endif
+				name = object->ce->name;
+			} else {
+				name = object->handlers->get_class_name(object);
+			}
+
+			if(func->op_array.fn_flags & ZEND_ACC_CLOSURE) {
+				zend_spprintf(&ret, 1024, "%s->{closure}():%d", ZSTR_VAL(name), call->opline->lineno);
+			} else {
+				zend_spprintf(&ret, 1024, "%s->%s()", ZSTR_VAL(name), ZSTR_VAL(func->common.function_name));
+			}
+		} else if (func->common.scope) {
+			if(func->op_array.fn_flags & ZEND_ACC_CLOSURE) {
+				zend_spprintf(&ret, 1024, "%s::{closure}():%d", ZSTR_VAL(func->common.scope->name), call->opline->lineno);
+			} else {
+				zend_spprintf(&ret, 1024, "%s::%s()", ZSTR_VAL(func->common.scope->name), ZSTR_VAL(func->common.function_name));
+			}
+		} else if(func->op_array.fn_flags & ZEND_ACC_CLOSURE) {
+			zend_spprintf(&ret, 1024, "{closure}():%s:%d", perf_basename(ZSTR_VAL(func->op_array.filename)), call->opline->lineno);
+		} else {
+			zend_spprintf(&ret, 1024, "%s()", ZSTR_VAL(func->common.function_name));
+		}
+	} else {
+		/* i know this is kinda ugly, but i'm trying to avoid extra cycles in the main execution loop */
+		bool build_filename_arg = 1;
+		uint32_t include_kind = 0;
+		if (func && ZEND_USER_CODE(func->common.type) && call->opline->opcode == ZEND_INCLUDE_OR_EVAL) {
+			include_kind = call->opline->extended_value;
+		}
+
+		switch (include_kind) {
+			case ZEND_EVAL:
+				name = ZSTR_KNOWN(ZEND_STR_EVAL);
+				build_filename_arg = 0;
+				break;
+			case ZEND_INCLUDE:
+				name = ZSTR_KNOWN(ZEND_STR_INCLUDE);
+				break;
+			case ZEND_REQUIRE:
+				name = ZSTR_KNOWN(ZEND_STR_REQUIRE);
+				break;
+			case ZEND_INCLUDE_ONCE:
+				name = ZSTR_KNOWN(ZEND_STR_INCLUDE_ONCE);
+				break;
+			case ZEND_REQUIRE_ONCE:
+				name = ZSTR_KNOWN(ZEND_STR_REQUIRE_ONCE);
+				break;
+			default:
+				return NULL;
+		}
+
+		if (build_filename_arg && func && ZEND_USER_CODE(func->common.type)) {
+			zend_spprintf(&ret, 1024, "%s(%s)", ZSTR_VAL(name), perf_basename(ZSTR_VAL(func->op_array.filename)));
+		} else {
+			zend_spprintf(&ret, 1024, "%s()", ZSTR_VAL(name));
+		}
+	}
+
+	return ret;
+}
+
+static ts_hash_table_t perf_ht;
+typedef struct {
+	int n;
+	float m;
+	double t;
+} perf_t;
+
+static void perf_free(value_t *v) {
+	
+}
+
+static void perf_execute_ex(zend_execute_data *execute_data) {
+	char *func = perf_get_function_name(execute_data);
+
+	if(func) {
+		double t = microtime();
+
+		_zend_execute_ex(execute_data);
+
+		t = microtime() - t;
+
+		ts_hash_table_wr_lock(&perf_ht);
+		{
+			int size = strlen(func);
+			zend_long h = zend_get_hash_value(func, size);
+			perf_t v;
+			if(hash_table_quick_find(&perf_ht.ht, func, size, h, (value_t*) &v) == FAILURE) {
+				memset(&v, 0, sizeof(v));
+			}
+
+			v.n ++;
+			v.t += t;
+			if(t > v.m) {
+				v.m = t;
+			}
+
+			hash_table_quick_update(&perf_ht.ht, func, size, h, (value_t*) &v, NULL);
+		}
+		ts_hash_table_wr_unlock(&perf_ht);
+
+		efree(func);
+	} else {
+		_zend_execute_ex(execute_data);
+	}
+}
+
+static int perf_sort_func(const bucket_t *a, const bucket_t *b) {
+	perf_t *ap = (perf_t*) &a->value;
+	perf_t *bp = (perf_t*) &b->value;
+
+	if(ap->t > bp->t) {
+		return 1;
+	} else if(ap->t < bp->t) {
+		return -1;
+	} else {
+		return 0;
+	}
+}
+
+int compare_key_nature(const bucket_t *a, const bucket_t *b) {
+    if(a->nKeyLength == 0) {
+        if(b->nKeyLength == 0) {
+            if(a->h > b->h) {
+                return 1;
+            } else if(a->h < b->h) {
+                return -1;
+            } else {
+                return 0;
+            }
+        } else {
+            return 1;
+        }
+    } else if(b->nKeyLength == 0) {
+        return -1;
+    } else {
+        return - strnatcmp(a->arKey, a->nKeyLength, b->arKey, b->nKeyLength, 0);
+    }
+}
+
+static int perf_apply_avg_func(bucket_t *pDest) {
+	perf_t *p = (perf_t*) &pDest->value;
+
+	p->t = p->t / (double) p->n;
+
+	return HASH_TABLE_APPLY_KEEP;
+}
+static int perf_apply_print_func(bucket_t *pDest, int *i) {
+	perf_t *p = (perf_t*) &pDest->value;
+
+	fprintf(stderr, "%04d %10d %10.6lf %10.6lf %s\n", *i, p->n, p->t, p->m, pDest->arKey);
+
+	(*i) ++;
+
+	return HASH_TABLE_APPLY_REMOVE;
+}
+
+// ======================= end perf =======================
+
+static const char *options = "pkDd:t:rc:mivh";
 static struct option OPTIONS[] = {
+    {"perf",           0, 0, 'p' },
+    {"key",            0, 0, 'k' },
     {"debug",          0, 0, 'D' },
     {"delay",          1, 0, 'd' },
     {"threads",        1, 0, 't' },
@@ -185,6 +395,12 @@ int main(int argc, char *argv[]) {
 
 	while((opt = getopt_long(argc, argv, options, OPTIONS, &ind)) != -1) {
 		switch(opt) {
+			case 'p':
+				is_perf = 1;
+				break;
+			case 'k':
+				is_perf = 2;
+				break;
 			case 'D':
 				isDebug = 1;
 				break;
@@ -249,6 +465,14 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
+	if(is_perf) {
+		_zend_execute_ex = zend_execute_ex;
+		zend_execute_ex  = perf_execute_ex;
+
+		// printf("value_t: %ld, perf_t: %ld\n", sizeof(value_t), sizeof(perf_t));
+		ts_hash_table_init_ex(&perf_ht, 128, perf_free);
+	}
+
 	zend_register_string_constant(ZEND_STRL("THREAD_TASK_NAME"), "main", CONST_CS, PHP_USER_CONSTANT);
 
 	cli_register_file_handles();
@@ -295,6 +519,17 @@ int main(int argc, char *argv[]) {
 
 	dprintf("END THREADTASK\n");
 
+	if(is_perf) {
+		int i = 1;
+		hash_table_sort(&perf_ht.ht, is_perf == 1 ? perf_sort_func : compare_key_nature, 0);
+		fprintf(stderr, "==================== PERF =========================================\n");
+		fprintf(stderr, "  ID      Times        AVG        MAX INFO\n");
+		fprintf(stderr, "-------------------------------------------------------------------\n");
+		hash_table_apply(&perf_ht.ht, perf_apply_avg_func);
+		hash_table_apply_with_argument(&perf_ht.ht, (hash_apply_func_arg_t) perf_apply_print_func, &i);
+		ts_hash_table_destroy_ex(&perf_ht, 0);
+	}
+
 	if(isReload) {
 		dprintf("RELOAD THREADTASK\n");
 		char **args = (char**) malloc(sizeof(char*)*(argc+1));
@@ -314,6 +549,8 @@ usage:
 	fprintf(stderr, 
 		"usage: %s [options] <phpfile> args...\n"
 		"    -h,--help               This help text\n"
+		"    -p,--perf               Perf info\n"
+		"    -k,--key                Perf sort for key\n"
 		"    -D,--debug              Debug info\n"
 		"    -d,--delay <delay>      Delay seconds\n"
 		"    -t,--threads <threads>  Max threads\n"

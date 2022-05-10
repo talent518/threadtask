@@ -20,6 +20,10 @@ extern volatile unsigned int delay;
 extern volatile zend_bool isDebug;
 extern volatile zend_bool isReload;
 
+double microtime();
+int strnatcmp(char const *a, size_t a_len, char const *b, size_t b_len, int fold_case);
+void debug_print_backtrace(const char *prefix, int skip_last, int options, int limit);
+
 void thread_init();
 void thread_running();
 void thread_destroy();

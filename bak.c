@@ -18,6 +18,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <execinfo.h>
 
 #include <php.h>
 #include <php_main.h>
@@ -49,7 +50,6 @@ volatile unsigned int maxthreads = 256;
 volatile unsigned int delay = 1;
 volatile zend_bool isDebug = 0;
 volatile zend_bool isReload = 0;
-volatile int isPerf = 0;
 
 static ts_rsrc_id php_threadtask_globals_id;
 #define SINFO(v) ZEND_TSRMG(php_threadtask_globals_id, php_threadtask_globals_struct *, v)
@@ -127,7 +127,8 @@ const char *gettimeofstr() {
 
 #define MICRO_IN_SEC 1000000.00
 
-double microtime() {
+double microtime()
+{
 	struct timeval tp = {0};
 
 	if (gettimeofday(&tp, NULL)) {
@@ -830,49 +831,53 @@ static PHP_FUNCTION(is_main_task) {
 }
 
 // -----------------------------------------------------------------------------------------------------------
-void debug_print_backtrace(const char *prefix, int skip_last, int options, int limit) {
-	char name[64];
-	
-	prctl(PR_GET_NAME, (unsigned long) name);
 
-#if PHP_VERSION_ID >= 80100
-	zval backtrace;
-
-	zend_fetch_debug_backtrace(&backtrace, skip_last, options, limit);
-	ZEND_ASSERT(Z_TYPE(backtrace) == IS_ARRAY);
-
-	zend_string *str = zend_trace_to_string(Z_ARRVAL(backtrace), /* include_main */ false);
-	if(ZSTR_LEN(str)) {
-		fprintf(stderr, "%s[%s] %*s", prefix, name, (int) ZSTR_LEN(str), ZSTR_VAL(str));
-	}
-	zend_string_release(str);
-
-	zval_ptr_dtor(&backtrace);
-#else
-	zval func, retval, params[2];
-
-	ZVAL_LONG(&params[0], options);
-	ZVAL_LONG(&params[1], limit);
-
-	ZVAL_STRING(&func, "debug_print_backtrace");
-
-	zend_printf("%s[%s] ", prefix, name);
-	call_user_function(NULL, NULL, &func, &retval, 2, params);
-
-	zval_ptr_dtor(&func);
-	zval_ptr_dtor(&retval);
-	zval_ptr_dtor(&params[0]);
-	zval_ptr_dtor(&params[1]);
-#endif
-}
+#define BT_BUF_SIZE 1024
 
 #ifdef HAVE_STRUCT_SIGINFO_T
 static void segv_signal_handler(int signo, siginfo_t *siginfo, void *context) {
 #else
 static void segv_signal_handler(int signo) {
 #endif
-	debug_print_backtrace("[SIGSEGV]", 0, 0, 0);
-	
+	{
+		zval traces;
+		char name[64];
+		
+		prctl(PR_GET_NAME, (unsigned long) name);
+
+		zend_fetch_debug_backtrace(&traces, 1, /* options */ 0, /* limit */ 0);
+		ZEND_ASSERT(Z_TYPE(traces) == IS_ARRAY);
+
+		zend_string *str = zend_trace_to_string(Z_ARRVAL(traces), /* include_main */ false);
+		fprintf(stderr, "[SIGSEGV][%s] %*s", name, (int) ZSTR_LEN(str), ZSTR_VAL(str));
+		zend_string_release(str);
+
+		zval_ptr_dtor(&traces);
+	}
+
+	{
+		int j, nptrs;
+		void *buffer[BT_BUF_SIZE];
+		char **strings;
+
+		nptrs = backtrace(buffer, BT_BUF_SIZE);
+		fprintf(stderr, "[SIGSEGV] backtrace() returned %d addresses\n", nptrs);
+
+		/* The call backtrace_symbols_fd(buffer, nptrs, STDOUT_FILENO)
+		would produce similar output to the following: */
+
+		strings = backtrace_symbols(buffer, nptrs);
+		if (strings == NULL) {
+			perror("backtrace_symbols");
+			exit(EXIT_FAILURE);
+		}
+
+		for (j = 0; j < nptrs; j++)
+		fprintf(stderr, "[SIGSEGV] %s\n", strings[j]);
+
+		free(strings);
+	}
+
 	zend_bailout();
 }
 
@@ -3540,30 +3545,7 @@ register_constant:
 
 // ===========================================================================================================
 
-#if PHP_VERSION_ID < 70300
-ZEND_BEGIN_ARG_INFO(arginfo_array_key_last, 0)
-	ZEND_ARG_INFO(0, arg) /* ARRAY_INFO(0, arg, 0) */
-ZEND_END_ARG_INFO()
-
-PHP_FUNCTION(array_key_last)
-{
-	zval *stack;    /* Input stack */
-	HashPosition pos;
-
-	ZEND_PARSE_PARAMETERS_START(1, 1)
-		Z_PARAM_ARRAY(stack)
-	ZEND_PARSE_PARAMETERS_END();
-
-	HashTable *target_hash = Z_ARRVAL_P (stack);
-	zend_hash_internal_pointer_end_ex(target_hash, &pos);
-	zend_hash_get_current_key_zval_ex(target_hash, return_value, &pos);
-}
-#endif
-
 static const zend_function_entry ext_functions[] = {
-#if PHP_VERSION_ID < 70300
-	ZEND_FE(array_key_last, arginfo_array_key_last)
-#endif
 	ZEND_FE(is_main_task, arginfo_is_main_task)
 	PHP_FALIAS(is_main_thread, is_main_task, arginfo_is_main_task)
 	ZEND_FE(create_task, arginfo_create_task)
