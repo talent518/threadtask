@@ -26,6 +26,7 @@ void debug_print_backtrace(const char *prefix, int skip_last, int options, int l
 
 void thread_init();
 void thread_running();
+void thread_sigmask();
 void thread_destroy();
 
 const char *gettimeofstr();

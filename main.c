@@ -528,6 +528,7 @@ int main(int argc, char *argv[]) {
 		fprintf(stderr, "-------------------------------------------------------------------\n");
 		hash_table_apply_with_argument(&perf_ht.ht, (hash_apply_func_arg_t) perf_apply_print_func, &i);
 		ts_hash_table_destroy_ex(&perf_ht, 0);
+		zend_execute_ex = _zend_execute_ex;
 	}
 
 	if(isReload) {
@@ -537,6 +538,19 @@ int main(int argc, char *argv[]) {
 		args[argc] = NULL;
 		execv(path, args);
 		perror("execv");
+	}
+	
+	{
+		zval func, retval, params[0];
+
+		ZVAL_LONG(&params[0], SIGINT);
+
+		ZVAL_STRING(&func, "task_wait");
+
+		call_user_function(NULL, NULL, &func, &retval, 1, params);
+		
+		zval_ptr_dtor(&func);
+		zval_ptr_dtor(&retval);
 	}
 
 out:

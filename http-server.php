@@ -377,6 +377,7 @@ if(!is_main_task()) {
 	$host = ($_SERVER['argv'][1]??'127.0.0.1');
 	$port = ($_SERVER['argv'][2]??5000);
 	$flag = ($_SERVER['argv'][3]??0);
+	$tasks = ($_SERVER['argv'][4]??100);
 
 	($sock = @socket_create(AF_INET, SOCK_STREAM, SOL_TCP)) or strerror('socket_create');
 	@socket_set_option($sock, SOL_SOCKET, SO_REUSEADDR, 1) or strerror('socket_set_option', false);
@@ -393,7 +394,7 @@ if(!is_main_task()) {
 	$wsres = ts_var_declare('wsres', null, true);
 
 	create_task('ws', __FILE__, []);
-	if(!$flag) for($i=0; $i<100; $i++) create_task('read' . $i, __FILE__, [0,$host,$port]);
+	if(!$flag) for($i=0; $i<$tasks; $i++) create_task('read' . $i, __FILE__, [0,$host,$port]);
 	for($i=0; $i<4; $i++) create_task('accept' . $i, __FILE__, [$fd,$flag,$host,$port]);
 
 	$n = $ns = $ne = 0;
