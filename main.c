@@ -80,11 +80,10 @@ void cli_register_file_handles(void) {
 		return;
 	}
 
-#if PHP_DEBUG
 	/* do not close stdout and stderr */
+	s_in->flags |= PHP_STREAM_FLAG_NO_CLOSE;
 	s_out->flags |= PHP_STREAM_FLAG_NO_CLOSE;
 	s_err->flags |= PHP_STREAM_FLAG_NO_CLOSE;
-#endif
 
 	php_stream_to_zval(s_in,  &ic.value);
 	php_stream_to_zval(s_out, &oc.value);
@@ -555,7 +554,7 @@ int main(int argc, char *argv[]) {
 
 out:
 	php_embed_shutdown();
-
+	
 	thread_destroy();
 
 	return 0;
