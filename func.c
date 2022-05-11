@@ -2084,7 +2084,7 @@ static PHP_FUNCTION(share_var_clean)
 }
 
 static int hash_table_clean_ex(bucket_t *p, int *ex) {
-	if(p->value.expire && p->value.expire < *ex) {
+	if(p->value.expire && p->value.expire <= *ex) {
 		return HASH_TABLE_APPLY_REMOVE;
 	} else if(p->value.type == HT_T) {
 		hash_table_apply_with_argument(p->value.ptr, (hash_apply_func_arg_t) hash_table_clean_ex, ex);
