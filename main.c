@@ -521,11 +521,11 @@ int main(int argc, char *argv[]) {
 
 	if(is_perf) {
 		int i = 1;
+		hash_table_apply(&perf_ht.ht, perf_apply_avg_func);
 		hash_table_sort(&perf_ht.ht, is_perf == 1 ? perf_sort_func : compare_key_nature, 0);
 		fprintf(stderr, "==================== PERF =========================================\n");
 		fprintf(stderr, "  ID      Times        AVG        MAX INFO\n");
 		fprintf(stderr, "-------------------------------------------------------------------\n");
-		hash_table_apply(&perf_ht.ht, perf_apply_avg_func);
 		hash_table_apply_with_argument(&perf_ht.ht, (hash_apply_func_arg_t) perf_apply_print_func, &i);
 		ts_hash_table_destroy_ex(&perf_ht, 0);
 	}
