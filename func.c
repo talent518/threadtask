@@ -2474,13 +2474,17 @@ static PHP_FUNCTION(ts_var_exists) {
 		RETURN_FALSE;
 	}
 
-	ts_hash_table_rd_lock(ts_ht);
 	if(key) {
-		RETVAL_BOOL(hash_table_exists(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key)));
+		zend_long h = zend_get_hash_value(ZSTR_VAL(key), ZSTR_LEN(key));
+		
+		ts_hash_table_rd_lock(ts_ht);
+		RETVAL_BOOL(hash_table_quick_exists(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h));
+		ts_hash_table_rd_unlock(ts_ht);
 	} else {
+		ts_hash_table_rd_lock(ts_ht);
 		RETVAL_BOOL(hash_table_index_exists(&ts_ht->ht, index));
+		ts_hash_table_rd_unlock(ts_ht);
 	}
-	ts_hash_table_rd_unlock(ts_ht);
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_ts_var_set, 3)
@@ -2516,15 +2520,21 @@ static PHP_FUNCTION(ts_var_set) {
 	zval_to_value(val, &v);
 	v.expire = expire;
 
-	ts_hash_table_wr_lock(ts_ht);
 	if(is_null) {
+		ts_hash_table_wr_lock(ts_ht);
 		RETVAL_BOOL(hash_table_next_index_insert(&ts_ht->ht, &v, NULL) == SUCCESS);
+		ts_hash_table_wr_unlock(ts_ht);
 	} else if(key) {
-		RETVAL_BOOL(hash_table_update(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), &v, NULL) == SUCCESS);
+		zend_long h = zend_get_hash_value(ZSTR_VAL(key), ZSTR_LEN(key));
+		
+		ts_hash_table_wr_lock(ts_ht);
+		RETVAL_BOOL(hash_table_quick_update(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v, NULL) == SUCCESS);
+		ts_hash_table_wr_unlock(ts_ht);
 	} else {
+		ts_hash_table_wr_lock(ts_ht);
 		RETVAL_BOOL(hash_table_index_update(&ts_ht->ht, index, &v, NULL) == SUCCESS);
+		ts_hash_table_wr_unlock(ts_ht);
 	}
-	ts_hash_table_wr_unlock(ts_ht);
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_ts_var_push, 2)
@@ -2535,7 +2545,7 @@ ZEND_END_ARG_INFO()
 static PHP_FUNCTION(ts_var_push) {
 	zval *zv;
 	zval *args;
-	int i, argc, n = 0;
+	int i, argc, n = 0, ret;
 	
 	ts_hash_table_t *ts_ht;
 	value_t v;
@@ -2549,13 +2559,16 @@ static PHP_FUNCTION(ts_var_push) {
 		RETURN_FALSE;
 	}
 	
-	ts_hash_table_wr_lock(ts_ht);
 	for(i=0; i<argc; i++) {
 		zval_to_value(&args[i], &v);
-		if(hash_table_next_index_insert(&ts_ht->ht, &v, NULL) == SUCCESS) n++;
+		
+		ts_hash_table_wr_lock(ts_ht);
+		ret = hash_table_next_index_insert(&ts_ht->ht, &v, NULL);
+		ts_hash_table_wr_unlock(ts_ht);
+		
+		if(ret == SUCCESS) n++;
 		else hash_table_value_free(&v);
 	}
-	ts_hash_table_wr_unlock(ts_ht);
 
 	RETURN_LONG(n);
 }
@@ -2711,32 +2724,39 @@ static PHP_FUNCTION(ts_var_get) {
 		hash_table_apply_with_argument(&ts_ht->ht, (hash_apply_func_arg_t) hash_table_to_zval, return_value);
 		ts_hash_table_rd_unlock(ts_ht);
 	} else if(is_del) {
-		ts_hash_table_wr_lock(ts_ht);
 		if(key) {
 			zend_long h = zend_get_hash_value(ZSTR_VAL(key), ZSTR_LEN(key));
+			
+			ts_hash_table_wr_lock(ts_ht);
 			if(hash_table_quick_find(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v) == SUCCESS) {
 				value_to_zval_wr(&v, return_value);
 				hash_table_quick_del(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h);
 			}
+			ts_hash_table_wr_unlock(ts_ht);
 		} else {
+			ts_hash_table_wr_lock(ts_ht);
 			if(hash_table_index_find(&ts_ht->ht, index, &v) == SUCCESS) {
 				value_to_zval_wr(&v, return_value);
 				hash_table_index_del(&ts_ht->ht, index);
 			}
+			ts_hash_table_wr_unlock(ts_ht);
 		}
-		ts_hash_table_wr_unlock(ts_ht);
 	} else {
-		ts_hash_table_rd_lock(ts_ht);
 		if(key) {
-			if(hash_table_find(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), &v) == SUCCESS) {
+			zend_long h = zend_get_hash_value(ZSTR_VAL(key), ZSTR_LEN(key));
+			
+			ts_hash_table_rd_lock(ts_ht);
+			if(hash_table_quick_find(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v) == SUCCESS) {
 				value_to_zval(&v, return_value);
 			}
+			ts_hash_table_rd_unlock(ts_ht);
 		} else {
+			ts_hash_table_rd_lock(ts_ht);
 			if(hash_table_index_find(&ts_ht->ht, index, &v) == SUCCESS) {
 				value_to_zval(&v, return_value);
 			}
+			ts_hash_table_rd_unlock(ts_ht);
 		}
-		ts_hash_table_rd_unlock(ts_ht);
 	}
 }
 
@@ -2780,14 +2800,16 @@ static PHP_FUNCTION(ts_var_get_or_set) {
 	
 	fci.retval = return_value;
 
-	ts_hash_table_rd_lock(ts_ht);
 	if(key) {
 		zend_long h = zend_get_hash_value(ZSTR_VAL(key), ZSTR_LEN(key));
+		
+		ts_hash_table_rd_lock(ts_ht);
 		if(hash_table_quick_find(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v) == SUCCESS) {
 			value_to_zval(&v, return_value);
 			ts_hash_table_rd_unlock(ts_ht);
 		} else {
 			ts_hash_table_rd_unlock(ts_ht);
+			
 			ts_hash_table_wr_lock(ts_ht);
 			if(hash_table_quick_find(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v) == SUCCESS) {
 				value_to_zval(&v, return_value);
@@ -2805,11 +2827,13 @@ static PHP_FUNCTION(ts_var_get_or_set) {
 			ts_hash_table_wr_unlock(ts_ht);
 		}
 	} else {
+		ts_hash_table_rd_lock(ts_ht);
 		if(hash_table_index_find(&ts_ht->ht, index, &v) == SUCCESS) {
 			value_to_zval(&v, return_value);
 			ts_hash_table_rd_unlock(ts_ht);
 		} else {
 			ts_hash_table_rd_unlock(ts_ht);
+			
 			ts_hash_table_wr_lock(ts_ht);
 			if(hash_table_index_find(&ts_ht->ht, index, &v) == SUCCESS) {
 				value_to_zval(&v, return_value);
@@ -2850,13 +2874,17 @@ static PHP_FUNCTION(ts_var_del) {
 		RETURN_FALSE;
 	}
 
-	ts_hash_table_wr_lock(ts_ht);
 	if(key) {
-		RETVAL_BOOL(hash_table_del(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key)) == SUCCESS);
+		zend_long h = zend_get_hash_value(ZSTR_VAL(key), ZSTR_LEN(key));
+		
+		ts_hash_table_wr_lock(ts_ht);
+		RETVAL_BOOL(hash_table_quick_del(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h) == SUCCESS);
+		ts_hash_table_wr_unlock(ts_ht);
 	} else {
+		ts_hash_table_wr_lock(ts_ht);
 		RETVAL_BOOL(hash_table_index_del(&ts_ht->ht, index) == SUCCESS);
+		ts_hash_table_wr_unlock(ts_ht);
 	}
-	ts_hash_table_wr_unlock(ts_ht);
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_ts_var_inc, 3)
@@ -2887,11 +2915,14 @@ static PHP_FUNCTION(ts_var_inc) {
 
 	zval_to_value(val, &v1);
 
-	ts_hash_table_wr_lock(ts_ht);
 	if(is_null) {
+		ts_hash_table_wr_lock(ts_ht);
 		RETVAL_BOOL(hash_table_next_index_insert(&ts_ht->ht, &v1, NULL) == SUCCESS);
+		ts_hash_table_wr_unlock(ts_ht);
 	} else if(key) {
 		zend_long h = zend_get_hash_value(ZSTR_VAL(key), ZSTR_LEN(key));
+		
+		ts_hash_table_wr_lock(ts_ht);
 		if(hash_table_quick_find(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v2) == FAILURE) {
 			if(hash_table_quick_update(&ts_ht->ht, ZSTR_VAL(key), ZSTR_LEN(key), h, &v1, NULL) == SUCCESS) {
 				value_to_zval_wr(&v1, return_value);
@@ -2904,7 +2935,9 @@ static PHP_FUNCTION(ts_var_inc) {
 				}
 			} else RETVAL_LONG(hash_table_num_elements(v2.ptr));
 		}
+		ts_hash_table_wr_unlock(ts_ht);
 	} else {
+		ts_hash_table_wr_lock(ts_ht);
 		if(hash_table_index_find(&ts_ht->ht, index, &v2) == FAILURE) {
 			if(hash_table_index_update(&ts_ht->ht, index, &v1, NULL) == SUCCESS) {
 				value_to_zval_wr(&v1, return_value);
@@ -2917,8 +2950,8 @@ static PHP_FUNCTION(ts_var_inc) {
 				}
 			} else RETVAL_LONG(hash_table_num_elements(v2.ptr));
 		}
+		ts_hash_table_wr_unlock(ts_ht);
 	}
-	ts_hash_table_wr_unlock(ts_ht);
 }
 
 ZEND_BEGIN_ARG_INFO(arginfo_ts_var_count, 1)

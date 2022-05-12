@@ -289,24 +289,26 @@ static void perf_execute_ex(zend_execute_data *execute_data) {
 
 		t = microtime() - t;
 
-		ts_hash_table_wr_lock(&perf_ht);
 		{
 			int size = strlen(func);
 			zend_long h = zend_get_hash_value(func, size);
 			perf_t v;
-			if(hash_table_quick_find(&perf_ht.ht, func, size, h, (value_t*) &v) == FAILURE) {
-				memset(&v, 0, sizeof(v));
-			}
+			ts_hash_table_wr_lock(&perf_ht);
+			{
+				if(hash_table_quick_find(&perf_ht.ht, func, size, h, (value_t*) &v) == FAILURE) {
+					memset(&v, 0, sizeof(v));
+				}
 
-			v.n ++;
-			v.t += t;
-			if(t > v.m) {
-				v.m = t;
-			}
+				v.n ++;
+				v.t += t;
+				if(t > v.m) {
+					v.m = t;
+				}
 
-			hash_table_quick_update(&perf_ht.ht, func, size, h, (value_t*) &v, NULL);
+				hash_table_quick_update(&perf_ht.ht, func, size, h, (value_t*) &v, NULL);
+			}
+			ts_hash_table_wr_unlock(&perf_ht);
 		}
-		ts_hash_table_wr_unlock(&perf_ht);
 
 		efree(func);
 	} else {
@@ -338,12 +340,12 @@ int compare_key_nature(const bucket_t *a, const bucket_t *b) {
                 return 0;
             }
         } else {
-            return 1;
+            return -1;
         }
     } else if(b->nKeyLength == 0) {
-        return -1;
+        return 1;
     } else {
-        return - strnatcmp(a->arKey, a->nKeyLength, b->arKey, b->nKeyLength, 0);
+        return strnatcmp(a->arKey, a->nKeyLength, b->arKey, b->nKeyLength, 0);
     }
 }
 

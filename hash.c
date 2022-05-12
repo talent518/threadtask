@@ -673,10 +673,10 @@ int compare_key(const bucket_t *a, const bucket_t *b) {
 				return 0;
 			}
 		} else {
-			return 1;
+			return -1;
 		}
 	} else if(b->nKeyLength == 0) {
-		return -1;
+		return 1;
 	} else {
 		return strcmp(a->arKey, b->arKey);
 	}
