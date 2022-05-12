@@ -3573,6 +3573,267 @@ register_constant:
 
 // ===========================================================================================================
 
+#include <curl/curl.h>
+#include <curl/php_curl.h>
+
+#if PHP_VERSION_ID >= 80000
+#include "curl_private.h"
+#endif
+
+static int le_curl_multi_socket_descriptor;
+#define PHP_CURL_MULTI_SOCKET_DESCRIPTOR "curl multi socket"
+
+typedef struct {
+	CURLM *multi;
+	zend_llist *easyh;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fci_cache;
+} curl_multi_socket_t;
+
+static zval *_php_curl_multi_find_easy_handle(zend_llist *easyh, CURL *easy) {
+	php_curl 			*tmp_ch;
+	zend_llist_position pos;
+	zval				*pz_ch_temp;
+
+	for(pz_ch_temp = (zval *)zend_llist_get_first_ex(easyh, &pos); pz_ch_temp;
+		pz_ch_temp = (zval *)zend_llist_get_next_ex(easyh, &pos)) {
+
+#if PHP_VERSION_ID >= 80000
+		tmp_ch = Z_CURL_P(pz_ch_temp);
+#else
+		if ((tmp_ch = (php_curl *)zend_fetch_resource(Z_RES_P(pz_ch_temp), le_curl_name, le_curl)) == NULL) {
+			return NULL;
+		}
+#endif
+		if (tmp_ch->cp == easy) {
+			return pz_ch_temp;
+		}
+	}
+
+	return NULL;
+}
+
+static int curl_multi_socket_callback(CURL *e, curl_socket_t s, int what, void *userp, void *sockp) {
+	zend_fcall_info fci;
+	zend_fcall_info_cache fci_cache;
+	zval retval;
+	int i;
+	curl_multi_socket_t *socket = (curl_multi_socket_t *) userp;
+
+	dprintf("[%s] fd: %d, what: %d\n", __func__, s, what);
+
+	fci = socket->fci;
+	fci_cache = socket->fci_cache;
+	fci.retval = &retval;
+	fci.named_params = NULL;
+	fci.params = (zval*) emalloc(sizeof(zval) * (socket->fci.param_count + 3));
+	fci.param_count = socket->fci.param_count + 3;
+	if(e) {
+		ZVAL_COPY(&fci.params[0], _php_curl_multi_find_easy_handle(socket->easyh, e));
+	} else {
+		ZVAL_NULL(&fci.params[0]);
+	}
+	ZVAL_LONG(&fci.params[1], s);
+	ZVAL_LONG(&fci.params[2], what);
+	for(i=0; i<socket->fci.param_count; i++) {
+		ZVAL_COPY(&fci.params[i+3], &socket->fci.params[i]);
+	}
+
+	zend_try {
+		zend_call_function(&fci, &fci_cache);
+	} zend_catch {
+		EG(exit_status) = 0;
+	} zend_end_try();
+
+	zval_ptr_dtor(&retval);
+	for(i=0; i<fci.param_count; i++) {
+		zval_ptr_dtor(&fci.params[i]);
+	}
+	efree(fci.params);
+
+	return 0;
+}
+
+static int curl_multi_socket_timeout(CURLM *multi, long timeout_ms, void *userp) {
+	return curl_multi_socket_callback(NULL, timeout_ms, CURL_SOCKET_TIMEOUT, userp, NULL);
+}
+
+static void fci_addref(zend_fcall_info *fci, zend_fcall_info_cache *fci_cache) {
+	Z_TRY_ADDREF(fci->function_name);
+	if (fci_cache->object) {
+		GC_ADDREF(fci_cache->object);
+	}
+}
+
+static void fci_release(zend_fcall_info *fci, zend_fcall_info_cache *fci_cache) {
+	zval_ptr_dtor(&fci->function_name);
+	if (fci_cache->object) {
+		zend_object_release(fci_cache->object);
+	}
+}
+
+#if PHP_VERSION_ID >= 80000
+
+static inline php_curlm *curl_multi_from_obj(zend_object *obj) {
+	return (php_curlm *)((char *)(obj) - XtOffsetOf(php_curlm, std));
+}
+
+#define Z_CURL_MULTI_P(zv) curl_multi_from_obj(Z_OBJ_P(zv))
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_curl_multi_socket_action, 0, 0, 3)
+ZEND_ARG_OBJ_INFO(0, curl, CurlHandle, 0)
+ZEND_ARG_TYPE_INFO(0, fd, IS_LONG, 0)
+ZEND_ARG_TYPE_INFO(0, what, IS_LONG, 0)
+ZEND_ARG_INFO(1, runnings)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(curl_multi_socket_action) {
+	zval *zmulti;
+	php_curlm *multi;
+	zend_long fd = 0, bitmask = 0;
+	zval *running_handles = NULL;
+
+	int runnings = 0;
+	CURLMcode ret;
+	
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Oll|z/", &zmulti, curl_multi_ce, &fd, &bitmask, &running_handles) == FAILURE) {
+		RETURN_THROWS();
+	}
+
+	multi = Z_CURL_MULTI_P(zmulti);
+	
+	ret = curl_multi_socket_action(multi->multi, fd, bitmask, &runnings);
+	if(ret == CURLM_OK) {
+		if(running_handles) {
+			zval_ptr_dtor(running_handles);
+			ZVAL_LONG(running_handles, runnings);
+		}
+		RETURN_TRUE;
+	} else {
+		RETURN_FALSE;
+	}
+}
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_curl_multi_socket_event, 0, 0, 2)
+ZEND_ARG_OBJ_INFO(0, curl, CurlHandle, 0)
+ZEND_ARG_TYPE_INFO(0, call, IS_CALLABLE, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(curl_multi_socket_event) {
+	zval *zmulti;
+	php_curlm *multi;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fci_cache;
+	zval *params = NULL;
+	uint32_t param_count = 0;
+
+	curl_multi_socket_t *socket;
+	
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Of*", &zmulti, curl_multi_ce, &fci, &fci_cache, &params, &param_count) == FAILURE) {
+		RETURN_THROWS();
+	}
+
+	multi = Z_CURL_MULTI_P(zmulti);
+
+	fci_addref(&fci, &fci_cache);
+	zend_fcall_info_argp(&fci, param_count, params);
+
+	socket = (curl_multi_socket_t *) emalloc(sizeof(curl_multi_socket_t));
+	socket->multi = multi->multi;
+	socket->easyh = &multi->easyh;
+	socket->fci = fci;
+	socket->fci_cache = fci_cache;
+
+	curl_multi_setopt(multi->multi, CURLMOPT_SOCKETFUNCTION, curl_multi_socket_callback);
+	curl_multi_setopt(multi->multi, CURLMOPT_SOCKETDATA, socket);
+	curl_multi_setopt(multi->multi, CURLMOPT_TIMERFUNCTION, curl_multi_socket_timeout);
+	curl_multi_setopt(multi->multi, CURLMOPT_TIMERDATA, socket);
+	
+	RETURN_RES(zend_register_resource(socket, le_curl_multi_socket_descriptor));
+}
+
+#else /// php < 8.0.0
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_curl_multi_socket_action, 0, 0, 3)
+ZEND_ARG_OBJ_INFO(0, curl, IS_RESOURCE, 0)
+ZEND_ARG_TYPE_INFO(0, fd, IS_LONG, 0)
+ZEND_ARG_TYPE_INFO(0, what, IS_LONG, 0)
+ZEND_ARG_INFO(1, runnings)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(curl_multi_socket_action) {
+	zval *zmulti;
+	php_curlm *multi;
+	zend_long fd = 0, bitmask = 0;
+	zval *running_handles = NULL;
+
+	int runnings = 0;
+	CURLMcode ret;
+	
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "rll|z/", &zmulti, &fd, &bitmask, &running_handles) == FAILURE) {
+		RETURN_THROWS();
+	}
+
+	if((multi = (php_curlm *) zend_fetch_resource(Z_RES_P(zmulti), le_curl_multi_handle_name, le_curl_multi_handle)) == NULL) {
+		RETURN_FALSE;
+	}
+	
+	ret = curl_multi_socket_action(multi->multi, fd, bitmask, &runnings);
+	if(ret == CURLM_OK) {
+		if(running_handles) {
+			zval_ptr_dtor(running_handles);
+			ZVAL_LONG(running_handles, runnings);
+		}
+		RETURN_TRUE;
+	} else {
+		RETURN_FALSE;
+	}
+}
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_curl_multi_socket_event, 0, 0, 2)
+ZEND_ARG_OBJ_INFO(0, curl, IS_RESOURCE, 0)
+ZEND_ARG_TYPE_INFO(0, call, IS_CALLABLE, 0)
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(curl_multi_socket_event) {
+	zval *zmulti;
+	php_curlm *multi;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fci_cache;
+	zval *params = NULL;
+	uint32_t param_count = 0;
+
+	curl_multi_socket_t *socket;
+	
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "rf*", &zmulti, &fci, &fci_cache, &params, &param_count) == FAILURE) {
+		RETURN_THROWS();
+	}
+
+	if((multi = (php_curlm *) zend_fetch_resource(Z_RES_P(zmulti), le_curl_multi_handle_name, le_curl_multi_handle)) == NULL) {
+		RETURN_FALSE;
+	}
+
+	fci_addref(&fci, &fci_cache);
+	zend_fcall_info_argp(&fci, param_count, params);
+
+	socket = (curl_multi_socket_t *) emalloc(sizeof(curl_multi_socket_t));
+	socket->multi = multi->multi;
+	socket->easyh = &multi->easyh;
+	socket->fci = fci;
+	socket->fci_cache = fci_cache;
+
+	curl_multi_setopt(multi->multi, CURLMOPT_SOCKETFUNCTION, curl_multi_socket_callback);
+	curl_multi_setopt(multi->multi, CURLMOPT_SOCKETDATA, socket);
+	curl_multi_setopt(multi->multi, CURLMOPT_TIMERFUNCTION, curl_multi_socket_timeout);
+	curl_multi_setopt(multi->multi, CURLMOPT_TIMERDATA, socket);
+	
+	RETURN_RES(zend_register_resource(socket, le_curl_multi_socket_descriptor));
+}
+
+#endif
+
+// ===========================================================================================================
+
 #if PHP_VERSION_ID < 70300
 ZEND_BEGIN_ARG_INFO(arginfo_array_key_last, 0)
 	ZEND_ARG_INFO(0, arg) /* ARRAY_INFO(0, arg, 0) */
@@ -3593,7 +3854,11 @@ PHP_FUNCTION(array_key_last)
 }
 #endif
 
+// ===========================================================================================================
+
 static const zend_function_entry ext_functions[] = {
+	ZEND_FE(curl_multi_socket_action, arginfo_curl_multi_socket_action)
+	ZEND_FE(curl_multi_socket_event, arginfo_curl_multi_socket_event)
 #if PHP_VERSION_ID < 70300
 	ZEND_FE(array_key_last, arginfo_array_key_last)
 #endif
@@ -3727,6 +3992,15 @@ static void php_destroy_ts_var(zend_resource *rsrc) {
 	dprintf("RESOURCE %p destroy(ts var)\n", rsrc->ptr);
 }
 
+static void php_destroy_curl_multi_socket(zend_resource *rsrc) {
+	curl_multi_socket_t *socket = (curl_multi_socket_t *) rsrc->ptr;
+
+	fci_release(&socket->fci, &socket->fci_cache);
+	zend_fcall_info_args_clear(&socket->fci, true);
+
+	efree(socket); 
+}
+
 #define spl_ce_Exception zend_ce_exception
 
 #if PHP_VERSION_ID >= 80100
@@ -3753,7 +4027,18 @@ static PHP_MINIT_FUNCTION(threadtask) {
 	ts_allocate_id(&php_threadtask_globals_id, sizeof(php_threadtask_globals_struct), (ts_allocate_ctor) php_threadtask_globals_ctor, (ts_allocate_dtor) php_threadtask_globals_dtor);
 	le_threadtask_descriptor = zend_register_list_destructors_ex(php_destroy_threadtask, NULL, PHP_THREADTASK_DESCRIPTOR, module_number);
 	le_ts_var_descriptor = zend_register_list_destructors_ex(php_destroy_ts_var, NULL, PHP_TS_VAR_DESCRIPTOR, module_number);
+	le_curl_multi_socket_descriptor = zend_register_list_destructors_ex(php_destroy_curl_multi_socket, NULL, PHP_CURL_MULTI_SOCKET_DESCRIPTOR, module_number);
 	
+	zend_register_long_constant(ZEND_STRL("CURL_POLL_IN"), CURL_POLL_IN, CONST_CS | CONST_PERSISTENT, module_number);
+	zend_register_long_constant(ZEND_STRL("CURL_POLL_OUT"), CURL_POLL_OUT, CONST_CS | CONST_PERSISTENT, module_number);
+	zend_register_long_constant(ZEND_STRL("CURL_POLL_INOUT"), CURL_POLL_INOUT, CONST_CS | CONST_PERSISTENT, module_number);
+	zend_register_long_constant(ZEND_STRL("CURL_POLL_REMOVE"), CURL_POLL_REMOVE, CONST_CS | CONST_PERSISTENT, module_number);
+	zend_register_long_constant(ZEND_STRL("CURL_POLL_NONE"), CURL_POLL_NONE, CONST_CS | CONST_PERSISTENT, module_number);
+	zend_register_long_constant(ZEND_STRL("CURL_CSELECT_IN"), CURL_CSELECT_IN, CONST_CS | CONST_PERSISTENT, module_number);
+	zend_register_long_constant(ZEND_STRL("CURL_CSELECT_OUT"), CURL_CSELECT_OUT, CONST_CS | CONST_PERSISTENT, module_number);
+	zend_register_long_constant(ZEND_STRL("CURL_CSELECT_ERR"), CURL_CSELECT_ERR, CONST_CS | CONST_PERSISTENT, module_number);
+	zend_register_long_constant(ZEND_STRL("CURL_SOCKET_TIMEOUT"), CURL_SOCKET_TIMEOUT, CONST_CS | CONST_PERSISTENT, module_number);
+
 	REGISTER_SPL_SUB_CLASS_EX(GoExitException, Exception, NULL, spl_ce_GoExitException_methods);
 	zend_declare_property_long(spl_ce_GoExitException, ZEND_STRL("status"), 0, ZEND_ACC_PRIVATE);
 	zend_set_user_opcode_handler(ZEND_EXIT, go_exit_handler);

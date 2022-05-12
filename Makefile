@@ -3,7 +3,7 @@ PHPDIR ?= /opt/phpts
 PHPSO ?= php7
 PHPINC := $(PHPDIR)/include/php
 CFLAGS := -g -O2 -Wall -I$(PHPINC) -I$(PHPINC)/ext -I$(PHPINC)/main -I$(PHPINC)/sapi -I$(PHPINC)/TSRM -I$(PHPINC)/Zend $(CFLAGS)
-LDFLAGS := -L$(PHPDIR)/lib -Wl,-rpath,$(PHPDIR)/lib -l$(PHPSO) -pthread -rdynamic $(LDFLAGS)
+LDFLAGS := -L$(PHPDIR)/lib -Wl,-rpath,$(PHPDIR)/lib -l$(PHPSO) -lcurl -pthread -rdynamic $(LDFLAGS)
 
 all: $(PHPINC)
 	@echo -n
