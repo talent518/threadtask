@@ -179,14 +179,33 @@ static void print_extensions(void) {
 // ======================= begin perf =======================
 
 static void (*_zend_execute_ex) (zend_execute_data *execute_data);
+static void (*_zend_execute_internal)(zend_execute_data *execute_data, zval *return_value);
 
 static char *perf_basename(char *file) {
-	char *pos = strrchr(file, '/');
-
-	if(pos) {
-		return pos + 1;
+	char buff[1024], *pos;
+	zval *name = zend_get_constant_str(ZEND_STRL("ROOT"));
+	
+	if(name) {
+		if(strncmp(file, Z_STRVAL_P(name), Z_STRLEN_P(name)) || file[Z_STRLEN_P(name)] != '/') {
+			goto retry;
+		} else {
+			return file + Z_STRLEN_P(name) + 1;
+		}
+	} else if(VCWD_GETCWD(buff, sizeof(buff))) {
+		int size = strlen(buff);
+		if(strncmp(file, buff, size) || file[size] != '/') {
+			goto retry;
+		} else {
+			return file + size + 1;
+		}
 	} else {
-		return file;
+	retry:
+		pos = strrchr(file, '/');
+		if(pos) {
+			return pos + 1;
+		} else {
+			return file;
+		}
 	}
 }
 
@@ -230,18 +249,16 @@ static char *perf_get_function_name(zend_execute_data *call) {
 			zend_spprintf(&ret, 1024, "%s()", ZSTR_VAL(func->common.function_name));
 		}
 	} else {
-		/* i know this is kinda ugly, but i'm trying to avoid extra cycles in the main execution loop */
-		bool build_filename_arg = 1;
 		uint32_t include_kind = 0;
+	retry:
 		if (func && ZEND_USER_CODE(func->common.type) && call->opline->opcode == ZEND_INCLUDE_OR_EVAL) {
 			include_kind = call->opline->extended_value;
 		}
 
 		switch (include_kind) {
 			case ZEND_EVAL:
-				name = ZSTR_KNOWN(ZEND_STR_EVAL);
-				build_filename_arg = 0;
-				break;
+				zend_spprintf(&ret, 1024, "eval:%s:%d", perf_basename(ZSTR_VAL(func->op_array.filename)), call->opline->lineno);
+				return ret;
 			case ZEND_INCLUDE:
 				name = ZSTR_KNOWN(ZEND_STR_INCLUDE);
 				break;
@@ -255,20 +272,23 @@ static char *perf_get_function_name(zend_execute_data *call) {
 				name = ZSTR_KNOWN(ZEND_STR_REQUIRE_ONCE);
 				break;
 			default:
-				return NULL;
+				call = call->prev_execute_data;
+				if(call && call->func) {
+					func = call->func;
+					include_kind = 0;
+					goto retry;
+				} else {
+					return NULL;
+				}
 		}
 
-		if (build_filename_arg && func && ZEND_USER_CODE(func->common.type)) {
-			zend_spprintf(&ret, 1024, "%s(%s)", ZSTR_VAL(name), perf_basename(ZSTR_VAL(func->op_array.filename)));
-		} else {
-			zend_spprintf(&ret, 1024, "%s()", ZSTR_VAL(name));
-		}
+		zend_spprintf(&ret, 1024, "%s:%s:%d", ZSTR_VAL(name), perf_basename(ZSTR_VAL(func->op_array.filename)), call->opline->lineno);
 	}
 
 	return ret;
 }
 
-static ts_hash_table_t perf_ht;
+static ts_hash_table_t perf_ht, perf_ht_internal;
 typedef struct {
 	int n;
 	float m;
@@ -279,6 +299,28 @@ static void perf_free(value_t *v) {
 	
 }
 
+static void perf_record(ts_hash_table_t *perf_ht, char *func, double t) {
+	int size = strlen(func);
+	zend_long h = zend_get_hash_value(func, size);
+	perf_t v;
+
+	ts_hash_table_wr_lock(perf_ht);
+	{
+		if(hash_table_quick_find(&perf_ht->ht, func, size, h, (value_t*) &v) == FAILURE) {
+			memset(&v, 0, sizeof(v));
+		}
+
+		v.n ++;
+		v.t += t;
+		if(t > v.m) {
+			v.m = t;
+		}
+
+		hash_table_quick_update(&perf_ht->ht, func, size, h, (value_t*) &v, NULL);
+	}
+	ts_hash_table_wr_unlock(perf_ht);
+}
+
 static void perf_execute_ex(zend_execute_data *execute_data) {
 	char *func = perf_get_function_name(execute_data);
 
@@ -286,33 +328,36 @@ static void perf_execute_ex(zend_execute_data *execute_data) {
 		double t = microtime();
 
 		_zend_execute_ex(execute_data);
-
-		t = microtime() - t;
-
-		{
-			int size = strlen(func);
-			zend_long h = zend_get_hash_value(func, size);
-			perf_t v;
-			ts_hash_table_wr_lock(&perf_ht);
-			{
-				if(hash_table_quick_find(&perf_ht.ht, func, size, h, (value_t*) &v) == FAILURE) {
-					memset(&v, 0, sizeof(v));
-				}
-
-				v.n ++;
-				v.t += t;
-				if(t > v.m) {
-					v.m = t;
-				}
-
-				hash_table_quick_update(&perf_ht.ht, func, size, h, (value_t*) &v, NULL);
-			}
-			ts_hash_table_wr_unlock(&perf_ht);
-		}
+		perf_record(&perf_ht, func, microtime() - t);
 
 		efree(func);
 	} else {
 		_zend_execute_ex(execute_data);
+	}
+}
+
+static void perf_execute_internal(zend_execute_data *execute_data, zval *return_value) {
+	char *func = perf_get_function_name(execute_data);
+
+	if(func) {
+		double t = microtime();
+
+		if (EXPECTED(_zend_execute_internal == NULL)) {
+			/* saves one function call if zend_execute_internal is not used */
+			execute_data->func->internal_function.handler(execute_data, return_value);
+		} else {
+			_zend_execute_internal(execute_data, return_value);
+		}
+
+		perf_record(&perf_ht_internal, func, microtime() - t);
+		efree(func);
+	} else {
+		if (EXPECTED(_zend_execute_internal == NULL)) {
+			/* saves one function call if zend_execute_internal is not used */
+			execute_data->func->internal_function.handler(execute_data, return_value);
+		} else {
+			_zend_execute_internal(execute_data, return_value);
+		}
 	}
 }
 
@@ -368,10 +413,11 @@ static int perf_apply_print_func(bucket_t *pDest, int *i) {
 
 // ======================= end perf =======================
 
-static const char *options = "pkDd:t:rc:mivh";
+static const char *options = "pkIDd:t:rc:mivh";
 static struct option OPTIONS[] = {
     {"perf",           0, 0, 'p' },
     {"key",            0, 0, 'k' },
+    {"interval",       0, 0, 'I' },
     {"debug",          0, 0, 'D' },
     {"delay",          1, 0, 'd' },
     {"threads",        1, 0, 't' },
@@ -392,7 +438,7 @@ int main(int argc, char *argv[]) {
 	size_t sz = readlink("/proc/self/exe", path, PATH_MAX);
 	path[sz] = '\0';
 	char *ini_path_override = NULL;
-	int is_module_list = 0, is_print_info = 0;
+	int is_module_list = 0, is_print_info = 0, is_key = 0, is_internal = 0;
 
 	while((opt = getopt_long(argc, argv, options, OPTIONS, &ind)) != -1) {
 		switch(opt) {
@@ -400,7 +446,10 @@ int main(int argc, char *argv[]) {
 				is_perf = 1;
 				break;
 			case 'k':
-				is_perf = 2;
+				is_key = 1;
+				break;
+			case 'I':
+				is_internal = 1;
 				break;
 			case 'D':
 				isDebug = 1;
@@ -469,6 +518,11 @@ int main(int argc, char *argv[]) {
 	if(is_perf) {
 		_zend_execute_ex = zend_execute_ex;
 		zend_execute_ex  = perf_execute_ex;
+		_zend_execute_internal = zend_execute_internal;
+		if(is_internal) {
+			zend_execute_internal = perf_execute_internal;
+			ts_hash_table_init_ex(&perf_ht_internal, 128, perf_free);
+		}
 
 		// printf("value_t: %ld, perf_t: %ld\n", sizeof(value_t), sizeof(perf_t));
 		ts_hash_table_init_ex(&perf_ht, 128, perf_free);
@@ -522,14 +576,25 @@ int main(int argc, char *argv[]) {
 
 	if(is_perf) {
 		int i = 1;
-		hash_table_apply(&perf_ht.ht, perf_apply_avg_func);
-		hash_table_sort(&perf_ht.ht, is_perf == 1 ? perf_sort_func : compare_key_nature, 0);
-		fprintf(stderr, "==================== PERF =========================================\n");
+		fprintf(stderr, "========================== PERF USER CODE =========================\n");
 		fprintf(stderr, "  ID      Times        AVG        MAX INFO\n");
 		fprintf(stderr, "-------------------------------------------------------------------\n");
+		hash_table_apply(&perf_ht.ht, perf_apply_avg_func);
+		hash_table_sort(&perf_ht.ht, is_key ? compare_key_nature : perf_sort_func, 0);
 		hash_table_apply_with_argument(&perf_ht.ht, (hash_apply_func_arg_t) perf_apply_print_func, &i);
 		ts_hash_table_destroy_ex(&perf_ht, 0);
+		if(is_internal) {
+			i = 1;
+			fprintf(stderr, "========================== PERF INTERNAL ==========================\n");
+			fprintf(stderr, "  ID      Times        AVG        MAX INFO\n");
+			fprintf(stderr, "-------------------------------------------------------------------\n");
+			hash_table_apply(&perf_ht_internal.ht, perf_apply_avg_func);
+			hash_table_sort(&perf_ht_internal.ht, is_key ? compare_key_nature : perf_sort_func, 0);
+			hash_table_apply_with_argument(&perf_ht_internal.ht, (hash_apply_func_arg_t) perf_apply_print_func, &i);
+			ts_hash_table_destroy_ex(&perf_ht_internal, 0);
+		}
 		zend_execute_ex = _zend_execute_ex;
+		zend_execute_internal = _zend_execute_internal;
 	}
 
 	if(isReload) {
@@ -566,6 +631,7 @@ usage:
 		"    -h,--help               This help text\n"
 		"    -p,--perf               Perf info\n"
 		"    -k,--key                Perf sort for key\n"
+		"    -I,--interval           Perf info for interval\n"
 		"    -D,--debug              Debug info\n"
 		"    -d,--delay <delay>      Delay seconds\n"
 		"    -t,--threads <threads>  Max threads\n"
