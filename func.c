@@ -18,6 +18,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/statvfs.h>
 
 #include <php.h>
 #include <php_main.h>
@@ -3754,10 +3755,48 @@ PHP_FUNCTION(array_key_last)
 }
 #endif
 
+ZEND_BEGIN_ARG_INFO(arginfo_statfs, 1)
+	ZEND_ARG_TYPE_INFO(0, path, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+PHP_FUNCTION(statfs)
+{
+	char *path = NULL;
+	size_t pathlen = 0;
+
+	struct statvfs vfs;
+
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_STRING(path, pathlen)
+	ZEND_PARSE_PARAMETERS_END();
+
+	if(statvfs(path, &vfs)) {
+		RETURN_FALSE;
+	}
+	
+	array_init_size(return_value, 7);
+	
+	add_assoc_long_ex(return_value, ZEND_STRL("total"), vfs.f_blocks * vfs.f_bsize);
+	add_assoc_long_ex(return_value, ZEND_STRL("avail"), vfs.f_bavail * vfs.f_bsize);
+	add_assoc_long_ex(return_value, ZEND_STRL("free"), vfs.f_bfree * vfs.f_bsize);
+	
+	add_assoc_long_ex(return_value, ZEND_STRL("ftotal"), vfs.f_files);
+	add_assoc_long_ex(return_value, ZEND_STRL("favail"), vfs.f_favail);
+	add_assoc_long_ex(return_value, ZEND_STRL("ffree"), vfs.f_ffree);
+	
+	add_assoc_long_ex(return_value, ZEND_STRL("namemax"), vfs.f_namemax);
+	// add_assoc_stringl_ex(return_value, ZEND_STRL("status"), p->value.str->str, p->value.str->len);
+}
+
+// -----------------------------------------------------------------------------------------------------------
+
 static const zend_function_entry ext_functions[] = {
 #if PHP_VERSION_ID < 70300
 	ZEND_FE(array_key_last, arginfo_array_key_last)
 #endif
+	ZEND_FE(statfs, arginfo_statfs)
+	PHP_FALIAS(statvfs, statfs, arginfo_statfs)
+
 	ZEND_FE(is_main_task, arginfo_is_main_task)
 	PHP_FALIAS(is_main_thread, is_main_task, arginfo_is_main_task)
 	ZEND_FE(create_task, arginfo_create_task)

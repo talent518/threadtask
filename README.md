@@ -163,6 +163,11 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
 * 调用并清除由register_shutdown_function注册的php中止函数: call_and_free_shutdown()
 * 重新定义常量: redefine(string $name, mixed $value, bool $case_insensitive = false)
 
+#### 8. 其它扩展函数
+* 获取文件系统信息(别名：statvfs): statfs(string $path): bool|array
+  * $path: string 文件或文件夹路径
+  * 返回值: bool|array 为数组时，每个键的意义：total(总字节数)，avail(可用字节数)，free(空闲字节数)，ftotal(总文件节点数)，avail(可用文件节点数)，free(空闲文件节点数)，namemax(文件名最大长度)
+
 ### 常量
 * THREAD_TASK_NAME: string 任务名, 主线程为main
 
