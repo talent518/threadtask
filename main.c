@@ -417,7 +417,7 @@ static const char *options = "pkIDd:t:rc:mivh";
 static struct option OPTIONS[] = {
     {"perf",           0, 0, 'p' },
     {"key",            0, 0, 'k' },
-    {"interval",       0, 0, 'I' },
+    {"internal",       0, 0, 'I' },
     {"debug",          0, 0, 'D' },
     {"delay",          1, 0, 'd' },
     {"threads",        1, 0, 't' },
@@ -631,7 +631,7 @@ usage:
 		"    -h,--help               This help text\n"
 		"    -p,--perf               Perf info\n"
 		"    -k,--key                Perf sort for key\n"
-		"    -I,--interval           Perf info for interval\n"
+		"    -I,--internal           Perf info for internal\n"
 		"    -D,--debug              Debug info\n"
 		"    -d,--delay <delay>      Delay seconds\n"
 		"    -t,--threads <threads>  Max threads\n"
