@@ -3736,7 +3736,25 @@ register_constant:
 // ===========================================================================================================
 
 #if PHP_VERSION_ID < 70300
-ZEND_BEGIN_ARG_INFO(arginfo_array_key_last, 0)
+ZEND_BEGIN_ARG_INFO(arginfo_array_key_first, 1)
+	ZEND_ARG_INFO(0, arg) /* ARRAY_INFO(0, arg, 0) */
+ZEND_END_ARG_INFO()
+
+PHP_FUNCTION(array_key_first)
+{
+	zval *stack;    /* Input stack */
+	HashPosition pos;
+
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_ARRAY(stack)
+	ZEND_PARSE_PARAMETERS_END();
+
+	HashTable *target_hash = Z_ARRVAL_P (stack);
+	zend_hash_internal_pointer_reset_ex(target_hash, &pos);
+	zend_hash_get_current_key_zval_ex(target_hash, return_value, &pos);
+}
+
+ZEND_BEGIN_ARG_INFO(arginfo_array_key_last, 1)
 	ZEND_ARG_INFO(0, arg) /* ARRAY_INFO(0, arg, 0) */
 ZEND_END_ARG_INFO()
 
@@ -3752,6 +3770,34 @@ PHP_FUNCTION(array_key_last)
 	HashTable *target_hash = Z_ARRVAL_P (stack);
 	zend_hash_internal_pointer_end_ex(target_hash, &pos);
 	zend_hash_get_current_key_zval_ex(target_hash, return_value, &pos);
+}
+#endif
+
+#if PHP_VERSION_ID < 80100
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_array_is_list, 0, 1, _IS_BOOL, 0)
+	ZEND_ARG_INFO(0, arg) /* ARRAY_INFO(0, arg, 0) */
+ZEND_END_ARG_INFO()
+
+PHP_FUNCTION(array_is_list)
+{
+	zval *stack;    /* Input stack */
+	zend_long expected_idx = 0;
+	zend_long num_idx;
+	zend_string* str_idx;
+	
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_ARRAY(stack)
+	ZEND_PARSE_PARAMETERS_END();
+	
+	HashTable *array = Z_ARRVAL_P(stack);
+	
+	ZEND_HASH_FOREACH_KEY(array, num_idx, str_idx) {
+		if (str_idx != NULL || num_idx != expected_idx++) {
+			RETURN_FALSE;
+		}
+	} ZEND_HASH_FOREACH_END();
+	
+	RETURN_TRUE;
 }
 #endif
 
@@ -3792,7 +3838,11 @@ PHP_FUNCTION(statfs)
 
 static const zend_function_entry ext_functions[] = {
 #if PHP_VERSION_ID < 70300
+	ZEND_FE(array_key_first, arginfo_array_key_first)
 	ZEND_FE(array_key_last, arginfo_array_key_last)
+#endif
+#if PHP_VERSION_ID < 80100
+	ZEND_FE(array_is_list, arginfo_array_is_list)
 #endif
 	ZEND_FE(statfs, arginfo_statfs)
 	PHP_FALIAS(statvfs, statfs, arginfo_statfs)
