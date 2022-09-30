@@ -607,7 +607,7 @@ int main(int argc, char *argv[]) {
 	}
 	
 	{
-		zval func, retval, params[0];
+		zval func, retval, params[1];
 
 		ZVAL_LONG(&params[0], SIGINT);
 
