@@ -967,7 +967,7 @@ ZEND_END_ARG_INFO()
 static PHP_FUNCTION(pthread_yield) {
 	ZEND_PARSE_PARAMETERS_NONE();
 
-	RETURN_BOOL(pthread_yield() == 0);
+	RETURN_BOOL(sched_yield() == 0);
 }
 
 // ===========================================================================================================
