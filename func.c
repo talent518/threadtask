@@ -1,9 +1,8 @@
+#define _GNU_SOURCE // memrchr, rawmemchr
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#define __USE_GNU
 #include <pthread.h>
-#undef __USE_GNU
 #include <unistd.h>
 #include <semaphore.h>
 #include <sys/time.h>
