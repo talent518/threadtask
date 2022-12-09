@@ -27,6 +27,12 @@ static volatile int is_perf = 0;
 		} while(0)
 #endif
 
+#if PHP_VERSION_ID < 80200
+#    define MOD_ARG , 1
+#else
+#   define MOD_ARG
+#endif
+
 #if PHP_VERSION_ID < 70400
 void zend_stream_init_filename(zend_file_handle *file_handle, const char *script_file) {
     int c;
@@ -128,7 +134,7 @@ static int php_threadtask_startup(sapi_module_struct *sapi_module) {
 			sapi_module->ini_entries = ret;
 		}
 	}
-	if (php_module_startup(sapi_module, &threadtask_module_entry, 1) == FAILURE) {
+	if (php_module_startup(sapi_module, &threadtask_module_entry MOD_ARG) == FAILURE) {
 		return FAILURE;
 	}
 	

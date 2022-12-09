@@ -3469,7 +3469,7 @@ static PHP_FUNCTION(socket_accept_ex) {
 
 // ===========================================================================================================
 
-#ifdef MYSQLI_USE_MYSQLND
+#if defined(MYSQLI_USE_MYSQLND) || PHP_VERSION_ID >= 80200
 #include <mysqli/php_mysqli_structs.h>
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_mysqli_export_fd, 0, 0, 1)
@@ -3915,7 +3915,7 @@ static const zend_function_entry ext_functions[] = {
 	PHP_FE(socket_import_fd, arginfo_socket_import_fd)
 	PHP_FE(socket_accept_ex, arginfo_socket_accept_ex)
 
-#ifdef MYSQLI_USE_MYSQLND
+#if defined(MYSQLI_USE_MYSQLND) || PHP_VERSION_ID >= 80200
 	PHP_FE(mysqli_export_fd, arginfo_mysqli_export_fd)
 	PHP_FE(mysqli_stmt_async_execute, arginfo_mysqli_stmt_async_execute)
 	PHP_FE(mysqli_stmt_reap_async_query, arginfo_mysqli_stmt_reap_async_query)
