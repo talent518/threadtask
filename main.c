@@ -128,17 +128,12 @@ static void sapi_cli_register_variables(zval *var) {
 
 static int php_threadtask_startup(sapi_module_struct *sapi_module) {
 	if(is_perf) {
-		char *ret = NULL;
-		if(asprintf(&ret, "%sopcache.jit=0\n", sapi_module->ini_entries) > 0) {
-			free(sapi_module->ini_entries);
-			sapi_module->ini_entries = ret;
+		static char buf[1024];
+		if(snprintf(buf, sizeof(buf), "%sopcache.jit=0\n", sapi_module->ini_entries) > 0) {
+			sapi_module->ini_entries = buf;
 		}
 	}
-	if (php_module_startup(sapi_module, &threadtask_module_entry MOD_ARG) == FAILURE) {
-		return FAILURE;
-	}
-	
-	return SUCCESS;
+	return php_module_startup(sapi_module, &threadtask_module_entry MOD_ARG);
 }
 
 static int module_name_cmp(Bucket *f, Bucket *s) {

@@ -185,7 +185,7 @@ void thread_init() {
 	mthread = pthread_self();
 }
 
-#ifdef MYSQLI_USE_MYSQLND
+#if defined(MYSQLI_USE_MYSQLND) || PHP_VERSION_ID >= 80200
 zend_class_entry *mysqli_link_class_entry;
 zend_class_entry *mysqli_stmt_class_entry;
 #endif
@@ -193,7 +193,7 @@ zend_class_entry *mysqli_stmt_class_entry;
 void thread_running() {
 	if(PG(error_log) == NULL) PG(display_errors) = 0;
 
-#ifdef MYSQLI_USE_MYSQLND
+#if defined(MYSQLI_USE_MYSQLND) || PHP_VERSION_ID >= 80200
 	{
 		zend_string *mysqli_str = zend_string_init(ZEND_STRL("mysqli"), 0);
 		zend_string *stmt_str = zend_string_init(ZEND_STRL("mysqli_stmt"), 0);
