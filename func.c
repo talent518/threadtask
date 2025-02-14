@@ -3967,9 +3967,9 @@ static void php_destroy_threadtask(zend_resource *rsrc) {
 	
 	sem_destroy(&ptr->sem);
 	
-	free(ptr);
-	
 	dprintf("RESOURCE %p destroy(task status)\n", ptr);
+	
+	free(ptr);
 }
 
 static void php_destroy_ts_var(zend_resource *rsrc) {
