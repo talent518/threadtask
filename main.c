@@ -412,6 +412,18 @@ static int perf_apply_print_func(bucket_t *pDest, int *i) {
 	return HASH_TABLE_APPLY_REMOVE;
 }
 
+#if PHP_VERSION_ID >= 80400
+static int php_register_internal_extensions_new(void)
+{
+	int ret = php_register_internal_extensions();
+
+	zend_hash_str_del(CG(function_table), "exit", 4);
+	zend_hash_str_del(CG(function_table), "die", 3);
+
+	return ret;
+}
+#endif
+
 // ======================= end perf =======================
 
 static const char *options = "pkIDd:t:rc:mivh";
@@ -491,6 +503,10 @@ int main(int argc, char *argv[]) {
 	}
 
 	thread_init();
+
+#if PHP_VERSION_ID >= 80400
+	php_register_internal_extensions_func = php_register_internal_extensions_new;
+#endif
 
 	php_embed_module.executable_location = path;
 	php_embed_module.php_ini_path_override = ini_path_override;

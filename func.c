@@ -973,6 +973,8 @@ static PHP_FUNCTION(pthread_yield) {
 
 static zend_class_entry *spl_ce_GoExitException;
 
+#if PHP_VERSION_ID < 80400
+
 static int go_exit_handler(zend_execute_data *execute_data) {
 	if(SINFO(is_throw_exit)) {
 		const zend_op *opline = EX(opline);
@@ -1009,6 +1011,55 @@ static int go_exit_handler(zend_execute_data *execute_data) {
 
 	return ZEND_USER_OPCODE_DISPATCH;
 }
+
+#else
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_exit, 0, 0, IS_NEVER, 0)
+	ZEND_ARG_TYPE_MASK(0, status, MAY_BE_STRING|MAY_BE_LONG, "0")
+ZEND_END_ARG_INFO()
+
+static PHP_FUNCTION(exit)
+{
+	zend_string *str = NULL;
+	zend_long status = 0;
+
+	ZEND_PARSE_PARAMETERS_START(0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_STR_OR_LONG(str, status)
+	ZEND_PARSE_PARAMETERS_END();
+
+	if (str) {
+		size_t len = ZSTR_LEN(str);
+		if (len != 0) {
+			/* An exception might be emitted by an output handler */
+			zend_write(ZSTR_VAL(str), len);
+			if (EG(exception)) {
+				RETURN_THROWS();
+			}
+		}
+	} else if(!SINFO(is_throw_exit)) {
+		EG(exit_status) = status;
+	}
+
+	if(SINFO(is_throw_exit)) {
+		zval ex;
+		zend_object *obj = zend_throw_exception(spl_ce_GoExitException, "In go function is run exit()", 0);
+		ZVAL_OBJ(&ex, obj);
+
+		zval st;
+		if(str) {
+			ZVAL_STR(&st, str);
+		} else {
+			ZVAL_LONG(&st, status);
+		}
+		zend_update_property(spl_ce_GoExitException, Z_OBJ_PROP(&ex), ZEND_STRL("status"), &st);
+	} else {
+		ZEND_ASSERT(!EG(exception));
+		zend_throw_unwind_exit();
+	}
+}
+
+#endif
 
 ZEND_BEGIN_ARG_INFO(arginfo_spl_ce_GoExitException_getStatus, 0)
 ZEND_END_ARG_INFO()
@@ -3836,6 +3887,10 @@ PHP_FUNCTION(statfs)
 // -----------------------------------------------------------------------------------------------------------
 
 static const zend_function_entry ext_functions[] = {
+#if PHP_VERSION_ID >= 80400
+	ZEND_FE(exit, arginfo_exit)
+	PHP_FALIAS(die, exit, arginfo_exit)
+#endif
 #if PHP_VERSION_ID < 70300
 	ZEND_FE(array_key_first, arginfo_array_key_first)
 	ZEND_FE(array_key_last, arginfo_array_key_last)
@@ -4007,8 +4062,9 @@ static PHP_MINIT_FUNCTION(threadtask) {
 	
 	REGISTER_SPL_SUB_CLASS_EX(GoExitException, Exception, NULL, spl_ce_GoExitException_methods);
 	zend_declare_property_long(spl_ce_GoExitException, ZEND_STRL("status"), 0, ZEND_ACC_PRIVATE);
+#if PHP_VERSION_ID < 80400
 	zend_set_user_opcode_handler(ZEND_EXIT, go_exit_handler);
-
+#endif
 	return SUCCESS;
 }
 
