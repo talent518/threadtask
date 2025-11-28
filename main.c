@@ -637,11 +637,13 @@ int main(int argc, char *argv[]) {
 	}
 
 out:
+	int exit_code = EG(exit_status);
+	
 	php_embed_shutdown();
 	
 	thread_destroy();
 
-	return 0;
+	return exit_code;
 usage:
 	fprintf(stderr, 
 		"usage: %s [options] <phpfile> args...\n"
