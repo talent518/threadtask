@@ -1,7 +1,9 @@
 <?php
 
-/* @var $this yii\web\View */
-/* @var $model app\models\User */
+use yii\helpers\Html;
+
+/** @var yii\web\View $this */
+/** @var app\models\User $model */
 
 $this->title = '用户更新: ' . $model->username;
 $this->params['breadcrumbs'][] = ['label' => '用户管理', 'url' => ['index']];
@@ -9,6 +11,8 @@ $this->params['breadcrumbs'][] = ['label' => $model->username, 'url' => ['view',
 $this->params['breadcrumbs'][] = '更新';
 ?>
 <div class="user-update">
+
+    <h1><?= Html::encode($this->title) ?></h1>
 
     <?= $this->render('_form', [
         'model' => $model,

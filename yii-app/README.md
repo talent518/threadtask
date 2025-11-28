@@ -6,7 +6,7 @@
     <br>
 </p>
 
-Yii 2 Basic Project Template is a skeleton [Yii 2](http://www.yiiframework.com/) application best for
+Yii 2 Basic Project Template is a skeleton [Yii 2](https://www.yiiframework.com/) application best for
 rapidly creating small projects.
 
 The template contains the basic features including user login/logout and a contact page.
@@ -37,7 +37,7 @@ DIRECTORY STRUCTURE
 REQUIREMENTS
 ------------
 
-The minimum requirement by this project template that your Web server supports PHP 5.6.0.
+The minimum requirement by this project template that your Web server supports PHP 7.4.
 
 
 INSTALLATION
@@ -45,8 +45,8 @@ INSTALLATION
 
 ### Install via Composer
 
-If you do not have [Composer](http://getcomposer.org/), you may install it by following the instructions
-at [getcomposer.org](http://getcomposer.org/doc/00-intro.md#installation-nix).
+If you do not have [Composer](https://getcomposer.org/), you may install it by following the instructions
+at [getcomposer.org](https://getcomposer.org/doc/00-intro.md#installation-nix).
 
 You can then install this project template using the following command:
 
@@ -63,7 +63,7 @@ http://localhost/basic/web/
 
 ### Install from an Archive File
 
-Extract the archive file downloaded from [yiiframework.com](http://www.yiiframework.com/download/) to
+Extract the archive file downloaded from [yiiframework.com](https://www.yiiframework.com/download/) to
 a directory named `basic` that is directly under the Web root.
 
 Set cookie validation key in `config/web.php` file to some random secret string:
@@ -131,8 +131,8 @@ return [
 TESTING
 -------
 
-Tests are located in `tests` directory. They are developed with [Codeception PHP Testing Framework](http://codeception.com/).
-By default there are 3 test suites:
+Tests are located in `tests` directory. They are developed with [Codeception PHP Testing Framework](https://codeception.com/).
+By default, there are 3 test suites:
 
 - `unit`
 - `functional`
@@ -155,7 +155,7 @@ To execute acceptance tests do the following:
 
 1. Rename `tests/acceptance.suite.yml.example` to `tests/acceptance.suite.yml` to enable suite configuration
 
-2. Replace `codeception/base` package in `composer.json` with `codeception/codeception` to install full featured
+2. Replace `codeception/base` package in `composer.json` with `codeception/codeception` to install full-featured
    version of Codeception
 
 3. Update dependencies with Composer 
@@ -164,7 +164,7 @@ To execute acceptance tests do the following:
     composer update  
     ```
 
-4. Download [Selenium Server](http://www.seleniumhq.org/download/) and launch it:
+4. Download [Selenium Server](https://www.seleniumhq.org/download/) and launch it:
 
     ```
     java -jar ~/selenium-server-standalone-x.xx.x.jar

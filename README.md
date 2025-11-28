@@ -190,7 +190,7 @@ php多线程任务，优点是占用内存少且稳定，对于并行任务处�
     * host: IP地址
     * port: 监听端口号
     * flag: 非0时每次连接使用create_task创建一次任务，否则默认启动100个常驻任务处理连接，当超过时进行非0时的启动任务。
-* yii-app-basic(在yii-app目录执行该命令来启动HTTP服务): ../threadtask http-server.php
+* yii-app-basic(在yii-app目录执行该命令来启动HTTP服务): ../threadtask ../http-server.php
   * mysql的test数据库创建，如下: 
 ```sql
 CREATE DATABASE IF NOT EXISTS `test` DEFAULT CHARSET=utf8;
